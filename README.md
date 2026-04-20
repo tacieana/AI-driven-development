@@ -301,6 +301,3 @@ Sem afirmações sem fonte. Cada aula indica a documentação oficial consultada
 
 Encontrou algo desatualizado ou incorreto? Abra uma issue ou PR. O conteúdo evolui junto com as ferramentas.
 
----
-
-_"A IA não vai substituir programadores. Programadores que usam IA vão substituir os que não usam."_
