@@ -56,17 +56,17 @@ flowchart TD
 **Quando usar:** Bloco de código com comentário explicativo, código duplicado, função longa.
 
 ```markdown
-"Extraia o bloco entre as linhas [X] e [Y] em uma função privada separada.
+"Extraia o bloco entre as linhas [X] e [Y] em um método privado separado.
 
 Código:
-```python
-[função longa]
+```java
+[método longo]
 ```
 
 Requisitos:
-- Nome da função deve comunicar intenção (não 'helper' ou 'util')
+- Nome do método deve comunicar intenção (não 'helper' ou 'util')
 - Parâmetros mínimos necessários
-- Mantenha a função original chamando a nova
+- Mantenha o método original chamando o novo
 - Não mude o comportamento"
 ```
 
@@ -82,16 +82,16 @@ Mantenha os testes passando."
 
 ### 3. Replace Conditional with Polymorphism
 
-**Quando usar:** Switch/if-elif que cresce a cada novo tipo.
+**Quando usar:** Switch/if-else que cresce a cada novo tipo.
 
 ```markdown
-"Este if-elif verifica o tipo de notificação e chama lógica diferente para cada um.
-Refatore para polimorfismo: uma classe base Notification com subclasses para cada tipo.
+"Este if-else verifica o tipo de notificação e chama lógica diferente para cada um.
+Refatore para polimorfismo: uma interface Notification com implementações para cada tipo.
 
 Restrições:
 - O código que chama notification.send() não deve mudar
-- Sem framework de DI — use factory function simples
-- Python 3.12 com dataclasses ou Protocol"
+- Sem framework de DI — use factory method simples
+- Java 21 com sealed interfaces ou abstract class"
 ```
 
 ### 4. Strangler Fig (para módulos grandes)
@@ -114,11 +114,11 @@ graph TD
 Passo atual: extrair a lógica de busca de usuário para um novo UserRepository.
 
 O legado é:
-```python
+```java
 [UserService atual]
 ```
 
-Crie o UserRepository com apenas o método get_by_id.
+Crie o UserRepository com apenas o método findById.
 Faça UserService delegar a ele.
 Mantenha todos os outros métodos sem mudança."
 ```
@@ -130,7 +130,7 @@ Mantenha todos os outros métodos sem mudança."
 ```markdown
 "Analise UserService e liste suas responsabilidades distintas antes de qualquer código.
 
-```python
+```java
 [UserService]
 ```
 
@@ -149,16 +149,16 @@ Aguarde minha aprovação das responsabilidades antes de implementar."
 Peça à IA para identificar o que refatorar com base em métricas:
 
 ```markdown
-"Analise o código abaixo e identifique as funções com maior risco de manutenção.
+"Analise o código abaixo e identifique os métodos com maior risco de manutenção.
 
-Para cada função problemática, reporte:
+Para cada método problemático, reporte:
 - Complexidade ciclomática (aproximada)
 - Número de responsabilidades
 - Facilidade de teste (alta/média/baixa)
 - Prioridade de refatoração (urgente/normal/baixa)
 
-```python
-[módulo completo]
+```java
+[classe completa]
 ```
 
 Ordene por prioridade decrescente."
@@ -183,9 +183,9 @@ flowchart TD
 
 ```markdown
 "Este código não tem testes. Antes de refatorar, preciso de 'testes de caracterização'
-— testes que documentam o comportamento atual, mesmo que seja um comportamento incorreto.
+— testes JUnit 5 que documentam o comportamento atual, mesmo que seja incorreto.
 
-```python
+```java
 [código legado]
 ```
 

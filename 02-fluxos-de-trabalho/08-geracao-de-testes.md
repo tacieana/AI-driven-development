@@ -39,27 +39,28 @@ flowchart TD
 ## Mapeando Caminhos de Execução
 
 ```markdown
-"Antes de gerar qualquer teste, mapeie todos os caminhos de execução desta função.
+"Antes de gerar qualquer teste, mapeie todos os caminhos de execução deste método.
 
-```python
-def process_refund(order_id: str, amount: float, reason: str) -> RefundResult:
-    order = get_order(order_id)
-    
-    if not order:
-        raise OrderNotFoundError(order_id)
-    
-    if order.status not in ["delivered", "shipped"]:
-        raise InvalidRefundError("Reembolso disponível apenas para pedidos entregues ou enviados")
-    
-    if amount > order.total:
-        raise InvalidRefundError(f"Valor excede o total do pedido: {order.total}")
-    
-    if order.days_since_delivery > 30:
-        raise InvalidRefundError("Prazo de reembolso expirado (30 dias)")
-    
-    refund = create_refund(order, amount, reason)
-    notify_customer(order.customer_email, refund)
-    return RefundResult(refund_id=refund.id, status="processing")
+```java
+public RefundResult processRefund(String orderId, BigDecimal amount, String reason) {
+    Order order = getOrder(orderId);
+
+    if (order == null)
+        throw new OrderNotFoundException(orderId);
+
+    if (!List.of("delivered", "shipped").contains(order.getStatus()))
+        throw new InvalidRefundException("Reembolso disponível apenas para pedidos entregues ou enviados");
+
+    if (amount.compareTo(order.getTotal()) > 0)
+        throw new InvalidRefundException("Valor excede o total do pedido: " + order.getTotal());
+
+    if (order.getDaysSinceDelivery() > 30)
+        throw new InvalidRefundException("Prazo de reembolso expirado (30 dias)");
+
+    Refund refund = createRefund(order, amount, reason);
+    notifyCustomer(order.getCustomerEmail(), refund);
+    return new RefundResult(refund.getId(), "processing");
+}
 ```
 
 Liste os caminhos em forma de tabela:

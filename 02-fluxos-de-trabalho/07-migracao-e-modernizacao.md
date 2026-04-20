@@ -8,10 +8,10 @@
 
 ```mermaid
 graph TD
-    A[Migrações] --> B[Versão de linguagem\nPy 3.8 → 3.12]
-    A --> C[Versão de framework\nDjango 3.2 → 5.0]
-    A --> D[Biblioteca\nrequests → httpx]
-    A --> E[Paradigma\ncallbacks → async]
+    A[Migrações] --> B[Versão de linguagem\nJava 8 → Java 21]
+    A --> C[Versão de framework\nSpring Boot 2 → 3]
+    A --> D[Biblioteca\nApache HttpClient → Java 11 HttpClient]
+    A --> E[Paradigma\ncallbacks → CompletableFuture/virtual threads]
     A --> F[Arquitetura\nmonolito → microserviços]
 
     B --> G[Baixo risco\nAlto volume]
@@ -29,49 +29,47 @@ graph TD
 
 ## Migração de Versão de Linguagem
 
-### Python 3.8 → 3.12: o que muda
+### Java 8 → Java 21: o que muda
 
 ```markdown
-"Audite este código Python 3.8 e identifique tudo que precisa ser atualizado para Python 3.12.
+"Audite este código Java 8 e identifique tudo que precisa ser atualizado para Java 21.
 
-```python
+```java
 [código]
 ```
 
 Liste por categoria:
-1. **Breaking changes** — coisas que vão falhar em 3.12
-2. **Deprecations** — coisas que ainda funcionam mas serão removidas
-3. **Melhorias disponíveis** — syntax nova que simplifica o código (type hints, match, etc.)
+1. **Breaking changes** — coisas que vão falhar em Java 21
+2. **Deprecations** — APIs obsoletas que serão removidas
+3. **Melhorias disponíveis** — recursos novos que simplificam o código (records, sealed classes, pattern matching, virtual threads, etc.)
 
 Para cada item: linha afetada + mudança necessária + exemplo de como fica."
 ```
 
-**Mudanças comuns Python 3.9-3.12:**
+**Mudanças comuns Java 9-21:**
 
-| Feature | Antes | Depois |
+| Feature | Antes (Java 8) | Depois (Java 21) |
 |---------|-------|--------|
-| Type hints built-in | `List[str]`, `Dict[str, int]` | `list[str]`, `dict[str, int]` |
-| Union types | `Optional[str]` / `Union[str, None]` | `str \| None` |
-| Match statement | if/elif chains | `match/case` |
-| Exception groups | — | `ExceptionGroup` |
-| f-string debugging | `f"x={x!r}"` | `f"{x=}"` |
+| Records | `@Data` (Lombok) / classe boilerplate | `record Point(int x, int y) {}` |
+| Text blocks | String concatenação longa | `"""..."""` |
+| Pattern matching | `instanceof` + cast manual | `instanceof String s` |
+| Sealed classes | hierarquias abertas | `sealed interface + permits` |
+| Virtual threads | `Thread` pesada | `Thread.ofVirtual().start(...)` |
+| Switch expressions | `switch` statement | `switch (...) { case X -> y; }` |
 
-### Exemplo: Modernizando type hints em lote
+### Exemplo: Modernizando classes de dados em lote
 
 ```markdown
-"Atualize os type hints deste arquivo de Python 3.8 para Python 3.12.
+"Atualize as classes de dados deste arquivo de Java 8 para Java 21.
 
 Mudanças a fazer:
-- `List[X]` → `list[X]`
-- `Dict[K, V]` → `dict[K, V]`
-- `Tuple[X, ...]` → `tuple[X, ...]`
-- `Optional[X]` → `X | None`
-- `Union[X, Y]` → `X | Y`
-- Remover imports de `typing` que ficarem desnecessários
+- Classes imutáveis com só getters → `record`
+- Verificações `instanceof` com cast → pattern matching
+- Strings multilinha concatenadas → text blocks
+- `Optional.isPresent()` + `get()` → `Optional.map/orElse`
+- Não mude mais nada — apenas as construções mencionadas
 
-Não mude mais nada — apenas os type hints.
-
-```python
+```java
 [arquivo]
 ```
 "
@@ -87,7 +85,7 @@ Não mude mais nada — apenas os type hints.
 "Estou migrando de [Framework X versão A] para [versão B].
 
 Código atual:
-```python
+```java
 [código usando o framework]
 ```
 
@@ -102,18 +100,19 @@ Changelog relevante:
 
 > ⚠️ **Importante:** Sempre cole o changelog oficial no prompt. A IA pode ter conhecimento desatualizado sobre versões específicas.
 
-### Django: exemplo de migração de queryset
+### Spring Boot 2 → 3: exemplo de migração
 
 ```markdown
-"Migre estas queries Django 3.2 para usar as APIs recomendadas no Django 5.0.
+"Migre este código Spring Boot 2 para as APIs recomendadas no Spring Boot 3.
 
 Mudanças necessárias:
-- `filter().update()` → `abulk_update()` onde aplicável
-- `select_related` com subqueries → `prefetch_related(Prefetch(...))`
-- `annotate` com `Value()` → usar `F()` expressions onde possível
+- `javax.*` imports → `jakarta.*`
+- `WebSecurityConfigurerAdapter` → `SecurityFilterChain` bean
+- `spring.datasource.initialization-mode` → `spring.sql.init.mode`
+- `@SpringBootTest(webEnvironment = ...)` continua igual
 
-```python
-[arquivo com queries]
+```java
+[arquivo com configurações e código]
 ```
 
 Mostre o antes e depois de cada mudança. Não altere a lógica de negócio."
@@ -123,40 +122,35 @@ Mostre o antes e depois de cada mudança. Não altere a lógica de negócio."
 
 ## Migração de Biblioteca
 
-### requests → httpx (sync para async)
+### Apache HttpClient → Java 11 HttpClient
 
 ```markdown
-"Migre este código de requests (sync) para httpx (async).
+"Migre este código de Apache HttpClient 4 para o Java 11 HttpClient nativo.
 
-```python
-import requests
+```java
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
 
-def fetch_user(user_id: str) -> dict:
-    response = requests.get(
-        f"https://api.example.com/users/{user_id}",
-        headers={"Authorization": f"Bearer {TOKEN}"},
-        timeout=10
-    )
-    response.raise_for_status()
-    return response.json()
-
-def fetch_orders(user_id: str) -> list:
-    response = requests.get(
-        f"https://api.example.com/users/{user_id}/orders",
-        params={"limit": 100},
-        timeout=10
-    )
-    response.raise_for_status()
-    return response.json()
+public Map<String, Object> fetchUser(String userId) throws Exception {
+    try (CloseableHttpClient client = HttpClients.createDefault()) {
+        HttpGet request = new HttpGet("https://api.example.com/users/" + userId);
+        request.setHeader("Authorization", "Bearer " + TOKEN);
+        try (var response = client.execute(request)) {
+            String body = EntityUtils.toString(response.getEntity());
+            return objectMapper.readValue(body, Map.class);
+        }
+    }
+}
 ```
 
 Regras:
-- Use httpx.AsyncClient com context manager
-- Reutilize o cliente para as duas chamadas (mesma session)
-- Mantenha o mesmo tratamento de erro
-- As funções se tornam async
+- Use java.net.http.HttpClient (singleton reutilizável)
+- Use HttpRequest.Builder para construir as requisições
+- Mantenha o mesmo tratamento de erro (IOException, status != 2xx)
+- Versão sync com sendAsync disponível se necessário
 
-Output: código migrado + as mudanças nos callers para usar await."
+Output: código migrado + remoção da dependência do pom.xml."
 ```
 
 ---
@@ -252,18 +246,19 @@ Confirme que:
 Para código que funciona mas não usa práticas modernas:
 
 ```markdown
-"Modernize este código Python mantendo comportamento idêntico.
+"Modernize este código Java 8 mantendo comportamento idêntico.
 
-```python
+```java
 [código legado]
 ```
 
 Aplicar onde fizer sentido (sem forçar se não melhorar):
-- Type hints em todas as funções
-- Dataclasses ou Pydantic onde há dicts de dados estruturados
-- f-strings onde há concatenação ou .format()
-- walrus operator (:=) onde reduz repetição
-- pathlib onde há manipulação de path com os.path
+- Records onde há classes imutáveis só com getters
+- Pattern matching para instanceof com cast
+- Text blocks para strings multilinha
+- var onde o tipo é óbvio pelo lado direito
+- Stream API onde há loops de transformação/filtro
+- Optional onde pode retornar null
 
 Não aplique se a mudança tornar o código mais confuso."
 ```
@@ -278,12 +273,12 @@ Após migrar, sempre valide:
 "Verifique se esta migração está correta.
 
 Código original:
-```python
+```java
 [código antigo]
 ```
 
 Código migrado:
-```python
+```java
 [código novo]
 ```
 
@@ -298,7 +293,7 @@ Confirme:
 
 ## ✅ Pontos-chave do Capítulo
 
-- A IA tem **maior ROI** em migrações de alto volume e baixo risco — type hints, syntax updates, troca de biblioteca.
+- A IA tem **maior ROI** em migrações de alto volume e baixo risco — records, pattern matching, troca de biblioteca.
 - **Sempre cole o changelog oficial** — a IA pode ter conhecimento desatualizado sobre versões específicas.
 - **Incremental sempre** — migre módulo por módulo, com testes verdes a cada passo.
 - Para código legado: **inventário automatizado primeiro**, depois priorize humanamente.

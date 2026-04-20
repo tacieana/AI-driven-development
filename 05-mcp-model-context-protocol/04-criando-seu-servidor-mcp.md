@@ -1,6 +1,6 @@
 # 04 — Criando seu Servidor MCP
 
-> **Objetivo:** Implementar um servidor MCP do zero em Python ou TypeScript, expondo tools, resources e prompts customizados para suas necessidades específicas.
+> **Objetivo:** Implementar um servidor MCP do zero em TypeScript, expondo tools, resources e prompts customizados para suas necessidades específicas.
 
 ---
 
@@ -23,163 +23,173 @@
 
 ## SDK Oficial
 
-A Anthropic mantém SDKs para Python e TypeScript:
+A Anthropic mantém SDKs oficiais para Python e TypeScript. **Para os exemplos deste capítulo usamos TypeScript** — é o SDK com maior adoção na comunidade MCP e suporte completo a todos os primitivos do protocolo.
+
+> 📌 **Nota:** Não há SDK MCP oficial para Java. Para integrar seu backend Java com Claude via MCP, crie o servidor MCP em TypeScript e exponha sua API Java internamente.
 
 ```bash
-# Python
-pip install mcp
-
-# TypeScript/Node
+# TypeScript/Node (recomendado)
 npm install @modelcontextprotocol/sdk
+
+# Python (alternativa)
+pip install mcp
 ```
 
 > 📌 **Referência:** modelcontextprotocol.io/docs/tools/sdk
 
 ---
 
-## Servidor Mínimo em Python
+## Servidor Mínimo em TypeScript
 
-```python
-# mcp_server.py
-from mcp.server import Server
-from mcp.server.stdio import stdio_server
-from mcp import types
+```typescript
+// src/index.ts
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import {
+  ListToolsRequestSchema,
+  CallToolRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
 
-# Inicializa o servidor com um nome
-app = Server("meu-servidor")
+const server = new Server(
+  { name: "meu-servidor", version: "1.0.0" },
+  { capabilities: { tools: {} } }
+);
 
-# Declara as tools disponíveis
-@app.list_tools()
-async def list_tools() -> list[types.Tool]:
-    return [
-        types.Tool(
-            name="get_sprint_status",
-            description=(
-                "Retorna o status atual do sprint ativo: issues abertas, "
-                "concluídas e bloqueadas. Use para entender o estado do time."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "team": {
-                        "type": "string",
-                        "description": "Nome do time (ex: 'backend', 'frontend')"
-                    }
-                },
-                "required": ["team"]
-            }
-        )
-    ]
+// Declara as tools disponíveis
+server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  tools: [
+    {
+      name: "get_sprint_status",
+      description:
+        "Retorna o status atual do sprint ativo: issues abertas, " +
+        "concluídas e bloqueadas. Use para entender o estado do time.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          team: {
+            type: "string",
+            description: "Nome do time (ex: 'backend', 'frontend')",
+          },
+        },
+        required: ["team"],
+      },
+    },
+  ],
+}));
 
-# Implementa a execução das tools
-@app.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
-    if name == "get_sprint_status":
-        team = arguments["team"]
-        # Aqui vai sua lógica real: chamar Jira, Linear, etc.
-        status = fetch_sprint_status(team)  # sua função
-        return [types.TextContent(type="text", text=status)]
+// Implementa a execução das tools
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  if (request.params.name === "get_sprint_status") {
+    const { team } = request.params.arguments as { team: string };
+    // Aqui vai sua lógica real: chamar Jira, Linear, etc.
+    const status = fetchSprintStatus(team);
+    return { content: [{ type: "text", text: status }] };
+  }
+  throw new Error(`Tool desconhecida: ${request.params.name}`);
+});
 
-    raise ValueError(f"Tool desconhecida: {name}")
+function fetchSprintStatus(team: string): string {
+  // Simulação — substitua por chamada real à sua API
+  return `Sprint do time ${team}: 12 issues abertas, 8 concluídas, 2 bloqueadas`;
+}
 
-def fetch_sprint_status(team: str) -> str:
-    # Simulação — substitua por chamada real à sua API
-    return f"Sprint do time {team}: 12 issues abertas, 8 concluídas, 2 bloqueadas"
-
-# Ponto de entrada: roda o servidor via stdio
-if __name__ == "__main__":
-    import asyncio
-    asyncio.run(stdio_server(app))
+// Ponto de entrada: roda o servidor via stdio
+const transport = new StdioServerTransport();
+await server.connect(transport);
 ```
 
 **Executando localmente:**
 ```bash
-python mcp_server.py
+npx ts-node src/index.ts
 ```
 
 **Adicionando ao Claude Code:**
 ```bash
-claude mcp add meu-servidor python /caminho/mcp_server.py
+claude mcp add meu-servidor -- npx ts-node /caminho/src/index.ts
 ```
 
 ---
 
 ## Servidor com Resources
 
-```python
-@app.list_resources()
-async def list_resources() -> list[types.Resource]:
-    return [
-        types.Resource(
-            uri="internal://docs/api-reference",
-            name="Referência da API Interna",
-            description="Documentação completa da API REST interna",
-            mimeType="text/markdown"
-        ),
-        types.Resource(
-            uri="internal://docs/architecture",
-            name="Arquitetura do Sistema",
-            description="Diagrama e decisões de arquitetura",
-            mimeType="text/markdown"
-        )
-    ]
+```typescript
+import { readFileSync } from "fs";
+import {
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
 
-@app.read_resource()
-async def read_resource(uri: str) -> str:
-    resources = {
-        "internal://docs/api-reference": Path("docs/api-reference.md").read_text(),
-        "internal://docs/architecture": Path("docs/architecture.md").read_text(),
-    }
-    if uri not in resources:
-        raise ValueError(f"Resource não encontrada: {uri}")
-    return resources[uri]
+server.setRequestHandler(ListResourcesRequestSchema, async () => ({
+  resources: [
+    {
+      uri: "internal://docs/api-reference",
+      name: "Referência da API Interna",
+      description: "Documentação completa da API REST interna",
+      mimeType: "text/markdown",
+    },
+    {
+      uri: "internal://docs/architecture",
+      name: "Arquitetura do Sistema",
+      description: "Diagrama e decisões de arquitetura",
+      mimeType: "text/markdown",
+    },
+  ],
+}));
+
+server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+  const resources: Record<string, string> = {
+    "internal://docs/api-reference": readFileSync("docs/api-reference.md", "utf-8"),
+    "internal://docs/architecture":  readFileSync("docs/architecture.md",  "utf-8"),
+  };
+  const content = resources[request.params.uri];
+  if (!content) throw new Error(`Resource não encontrada: ${request.params.uri}`);
+  return { contents: [{ uri: request.params.uri, mimeType: "text/markdown", text: content }] };
+});
 ```
 
 ---
 
 ## Servidor com Prompts
 
-```python
-@app.list_prompts()
-async def list_prompts() -> list[types.Prompt]:
-    return [
-        types.Prompt(
-            name="review_migration",
-            description="Revisa uma migration de banco de dados para segurança e reversibilidade",
-            arguments=[
-                types.PromptArgument(
-                    name="migration_sql",
-                    description="O conteúdo SQL da migration",
-                    required=True
-                ),
-                types.PromptArgument(
-                    name="table_size",
-                    description="Tamanho estimado da tabela (ex: '10M rows')",
-                    required=False
-                )
-            ]
-        )
-    ]
+```typescript
+import {
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
 
-@app.get_prompt()
-async def get_prompt(name: str, arguments: dict) -> types.GetPromptResult:
-    if name == "review_migration":
-        sql = arguments["migration_sql"]
-        table_size = arguments.get("table_size", "desconhecido")
-        return types.GetPromptResult(
-            description="Revisão de migration",
-            messages=[
-                types.PromptMessage(
-                    role="user",
-                    content=types.TextContent(
-                        type="text",
-                        text=f"""Revise esta migration de banco de dados:
+server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+  prompts: [
+    {
+      name: "review_migration",
+      description: "Revisa uma migration de banco de dados para segurança e reversibilidade",
+      arguments: [
+        { name: "migration_sql", description: "O conteúdo SQL da migration",          required: true  },
+        { name: "table_size",    description: "Tamanho estimado da tabela (ex: '10M rows')", required: false },
+      ],
+    },
+  ],
+}));
 
-```sql
-{sql}
-```
+server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+  if (request.params.name === "review_migration") {
+    const { migration_sql, table_size = "desconhecido" } = request.params.arguments as {
+      migration_sql: string;
+      table_size?: string;
+    };
+    return {
+      description: "Revisão de migration",
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text: `Revise esta migration de banco de dados:
 
-Tamanho da tabela: {table_size}
+\`\`\`sql
+${migration_sql}
+\`\`\`
+
+Tamanho da tabela: ${table_size}
 
 Analise:
 1. Segurança: a operação pode causar lock de tabela?
@@ -187,109 +197,19 @@ Analise:
 3. Performance: o impacto em produção é aceitável?
 4. Dados: algum dado pode ser perdido permanentemente?
 
-Para cada item, classifique como ✅ OK, ⚠️ Atenção ou 🔴 Bloqueador."""
-                    )
-                )
-            ]
-        )
-    raise ValueError(f"Prompt não encontrado: {name}")
+Para cada item, classifique como ✅ OK, ⚠️ Atenção ou 🔴 Bloqueador.`,
+          },
+        },
+      ],
+    };
+  }
+  throw new Error(`Prompt não encontrado: ${request.params.name}`);
+});
 ```
 
 ---
 
 ## Exemplo Completo: Servidor para API Interna
-
-```python
-# mcp_internal_api.py
-import httpx
-import os
-from mcp.server import Server
-from mcp.server.stdio import stdio_server
-from mcp import types
-
-app = Server("api-interna")
-API_BASE = os.environ.get("INTERNAL_API_URL", "http://localhost:8000")
-API_KEY = os.environ.get("INTERNAL_API_KEY", "")
-
-@app.list_tools()
-async def list_tools() -> list[types.Tool]:
-    return [
-        types.Tool(
-            name="list_deployments",
-            description="Lista os deployments recentes do ambiente especificado",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "environment": {
-                        "type": "string",
-                        "enum": ["staging", "production"],
-                        "description": "Ambiente a consultar"
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Número máximo de resultados (padrão: 10)",
-                        "default": 10
-                    }
-                },
-                "required": ["environment"]
-            }
-        ),
-        types.Tool(
-            name="get_service_health",
-            description="Verifica saúde de um serviço específico",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "service": {"type": "string", "description": "Nome do serviço"}
-                },
-                "required": ["service"]
-            }
-        )
-    ]
-
-@app.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
-    headers = {"Authorization": f"Bearer {API_KEY}"}
-
-    async with httpx.AsyncClient() as client:
-        if name == "list_deployments":
-            env = arguments["environment"]
-            limit = arguments.get("limit", 10)
-            resp = await client.get(
-                f"{API_BASE}/deployments",
-                params={"environment": env, "limit": limit},
-                headers=headers
-            )
-            resp.raise_for_status()
-            return [types.TextContent(type="text", text=resp.text)]
-
-        if name == "get_service_health":
-            service = arguments["service"]
-            resp = await client.get(
-                f"{API_BASE}/services/{service}/health",
-                headers=headers
-            )
-            resp.raise_for_status()
-            return [types.TextContent(type="text", text=resp.text)]
-
-    raise ValueError(f"Tool desconhecida: {name}")
-
-if __name__ == "__main__":
-    import asyncio
-    asyncio.run(stdio_server(app))
-```
-
-```bash
-# Adicionar ao Claude Code com variáveis de ambiente
-claude mcp add api-interna \
-  -e INTERNAL_API_URL=https://api.empresa.com \
-  -e INTERNAL_API_KEY=secret \
-  python /caminho/mcp_internal_api.py
-```
-
----
-
-## Estrutura de um Servidor MCP em TypeScript
 
 ```typescript
 // src/index.ts
@@ -297,47 +217,86 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 
+const API_BASE = process.env.INTERNAL_API_URL ?? "http://localhost:8000";
+const API_KEY  = process.env.INTERNAL_API_KEY  ?? "";
+
 const server = new Server(
-  { name: "meu-servidor", version: "1.0.0" },
+  { name: "api-interna", version: "1.0.0" },
   { capabilities: { tools: {} } }
 );
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [
     {
-      name: "my_tool",
-      description: "Descrição da ferramenta",
+      name: "list_deployments",
+      description: "Lista os deployments recentes do ambiente especificado",
       inputSchema: {
         type: "object",
         properties: {
-          param: { type: "string", description: "Parâmetro" }
+          environment: { type: "string", enum: ["staging", "production"], description: "Ambiente a consultar" },
+          limit:       { type: "integer", description: "Número máximo de resultados (padrão: 10)", default: 10 },
         },
-        required: ["param"]
-      }
-    }
-  ]
+        required: ["environment"],
+      },
+    },
+    {
+      name: "get_service_health",
+      description: "Verifica saúde de um serviço específico",
+      inputSchema: {
+        type: "object",
+        properties: {
+          service: { type: "string", description: "Nome do serviço" },
+        },
+        required: ["service"],
+      },
+    },
+  ],
 }));
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  if (request.params.name === "my_tool") {
-    const { param } = request.params.arguments as { param: string };
-    return { content: [{ type: "text", text: `Resultado para: ${param}` }] };
+  const headers = { Authorization: `Bearer ${API_KEY}` };
+  const { name, arguments: args } = request.params;
+
+  if (name === "list_deployments") {
+    const { environment, limit = 10 } = args as { environment: string; limit?: number };
+    const url = `${API_BASE}/deployments?environment=${environment}&limit=${limit}`;
+    const resp = await fetch(url, { headers });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return { content: [{ type: "text", text: await resp.text() }] };
   }
-  throw new Error(`Tool desconhecida: ${request.params.name}`);
+
+  if (name === "get_service_health") {
+    const { service } = args as { service: string };
+    const resp = await fetch(`${API_BASE}/services/${service}/health`, { headers });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return { content: [{ type: "text", text: await resp.text() }] };
+  }
+
+  throw new Error(`Tool desconhecida: ${name}`);
 });
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
 ```
 
-> 📌 **Referência:** modelcontextprotocol.io/docs/tools/sdk/python
+```bash
+# Adicionar ao Claude Code com variáveis de ambiente
+claude mcp add api-interna \
+  -e INTERNAL_API_URL=https://api.empresa.com \
+  -e INTERNAL_API_KEY=secret \
+  -- npx ts-node /caminho/src/index.ts
+```
+
+---
+
+> 📌 **Referência:** modelcontextprotocol.io/docs/tools/sdk
 
 ---
 
 ## ✅ Pontos-chave do Capítulo
 
-- SDKs oficiais existem para Python (`mcp`) e TypeScript (`@modelcontextprotocol/sdk`)
-- A estrutura mínima: `list_tools()` declara as tools; `call_tool()` executa quando chamadas
+- SDKs oficiais existem para TypeScript (`@modelcontextprotocol/sdk`) e Python (`mcp`) — use TypeScript
+- A estrutura mínima: `ListToolsRequestSchema` declara as tools; `CallToolRequestSchema` executa quando chamadas
 - Resources são para leitura de dados; use URIs semânticas (`schema://caminho/recurso`)
 - Prompts são templates parametrizáveis — ótimos para fluxos padronizados do seu time
 - Passe credenciais via variáveis de ambiente ao adicionar o servidor com `claude mcp add`

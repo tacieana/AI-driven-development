@@ -50,14 +50,16 @@ O mais conservador. O agente para antes de cada ação e aguarda confirmação.
 
 **Quando usar:** ações novas ou não testadas, ambiente de produção, dados sensíveis.
 
-```python
-def request_approval(action_name: str, action_args: dict) -> bool:
-    print("\n" + "="*50)
-    print(f"⚠️  O agente quer executar: {action_name}")
-    print(f"   Argumentos: {action_args}")
-    print("="*50)
-    response = input("Aprovar? [s/N]: ").strip().lower()
-    return response == "s"
+```java
+static boolean requestApproval(String actionName, Map<String, Object> actionArgs) {
+    System.out.println("\n" + "=".repeat(50));
+    System.out.println("⚠️  O agente quer executar: " + actionName);
+    System.out.println("   Argumentos: " + actionArgs);
+    System.out.println("=".repeat(50));
+    System.out.print("Aprovar? [s/N]: ");
+    String response = new Scanner(System.in).nextLine().trim().toLowerCase();
+    return response.equals("s");
+}
 ```
 
 **Desvantagem:** interrompe demais tarefas simples. Use apenas para ações de alto risco.
@@ -80,31 +82,37 @@ flowchart LR
     F3 --> DONE["✅ Concluído"]
 ```
 
-```python
-def run_with_checkpoints(task: str) -> str:
-    phases = [
-        ("análise e planejamento", "Analise o problema e proponha um plano de implementação detalhado."),
-        ("implementação", "Execute o plano aprovado. Implemente o código conforme planejado."),
-        ("testes e validação", "Escreva e execute testes. Verifique que a implementação está correta."),
-    ]
+```java
+static String runWithCheckpoints(String task) {
+    record Phase(String name, String instruction) {}
+    List<Phase> phases = List.of(
+        new Phase("análise e planejamento", "Analise o problema e proponha um plano de implementação detalhado."),
+        new Phase("implementação",          "Execute o plano aprovado. Implemente o código conforme planejado."),
+        new Phase("testes e validação",     "Escreva e execute testes. Verifique que a implementação está correta.")
+    );
 
-    context = task
-    for phase_name, phase_instruction in phases:
-        print(f"\n🔄 Iniciando fase: {phase_name}")
-        result = run_agent_loop(f"{phase_instruction}\n\nContexto: {context}")
-        print(f"\n📋 Resultado da fase '{phase_name}':\n{result}")
+    Scanner scanner = new Scanner(System.in);
+    String context = task;
 
-        approval = input(f"\nAprovar fase '{phase_name}' e continuar? [s/N/feedback]: ").strip()
-        if approval.lower() == "n":
-            return f"Processo encerrado pelo usuário na fase '{phase_name}'"
-        if approval.lower() not in ("s", ""):
-            context = f"{context}\n\nFeedback do revisor humano: {approval}"
-            # Re-executa a fase com o feedback
-            continue
+    for (Phase phase : phases) {
+        System.out.println("\n🔄 Iniciando fase: " + phase.name());
+        String result = runAgentLoop(phase.instruction() + "\n\nContexto: " + context);
+        System.out.println("\n📋 Resultado da fase '" + phase.name() + "':\n" + result);
 
-        context = f"{context}\n\nResultado da fase '{phase_name}':\n{result}"
+        System.out.print("\nAprovar fase '" + phase.name() + "' e continuar? [s/N/feedback]: ");
+        String approval = scanner.nextLine().trim();
 
-    return context
+        if (approval.equalsIgnoreCase("n")) {
+            return "Processo encerrado pelo usuário na fase '" + phase.name() + "'";
+        }
+        if (!approval.equalsIgnoreCase("s") && !approval.isEmpty()) {
+            context = context + "\n\nFeedback do revisor humano: " + approval;
+            continue; // re-executa a fase com o feedback
+        }
+        context = context + "\n\nResultado da fase '" + phase.name() + "':\n" + result;
+    }
+    return context;
+}
 ```
 
 ---
@@ -113,16 +121,20 @@ def run_with_checkpoints(task: str) -> str:
 
 O agente executa autonomamente, mas um conjunto de condições dispara uma pausa para revisão.
 
-```python
-INTERRUPT_TRIGGERS = [
-    lambda action, args: action == "delete_file",
-    lambda action, args: action == "write_file" and "prod" in args.get("path", ""),
-    lambda action, args: action == "run_command" and "rm" in args.get("cmd", ""),
-    lambda action, args: action == "call_api" and args.get("method") == "DELETE",
-]
+```java
+import java.util.*;
+import java.util.function.BiPredicate;
 
-def should_interrupt(action: str, args: dict) -> bool:
-    return any(trigger(action, args) for trigger in INTERRUPT_TRIGGERS)
+static final List<BiPredicate<String, Map<String, Object>>> INTERRUPT_TRIGGERS = List.of(
+    (action, args) -> action.equals("delete_file"),
+    (action, args) -> action.equals("write_file") && ((String) args.getOrDefault("path", "")).contains("prod"),
+    (action, args) -> action.equals("run_command") && ((String) args.getOrDefault("cmd", "")).contains("rm"),
+    (action, args) -> action.equals("call_api") && "DELETE".equals(args.get("method"))
+);
+
+static boolean shouldInterrupt(String action, Map<String, Object> args) {
+    return INTERRUPT_TRIGGERS.stream().anyMatch(trigger -> trigger.test(action, args));
+}
 ```
 
 ---
@@ -144,31 +156,52 @@ sequenceDiagram
     A->>U: Resultado
 ```
 
-```python
-def dry_run(task: str) -> list[dict]:
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=2048,
-        system=(
-            "Você deve planejar as ações sem executá-las. "
-            "Responda APENAS com uma lista JSON de ações no formato: "
-            '[{"tool": "nome", "args": {...}, "reason": "por que esta ação"}]'
-        ),
-        messages=[{"role": "user", "content": task}]
-    )
-    import json
-    return json.loads(response.content[0].text)
+```java
+import com.anthropic.client.Anthropic;
+import com.anthropic.client.okhttp.AnthropicOkHttpClient;
+import com.anthropic.models.messages.*;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.*;
 
-def execute_approved_plan(plan: list[dict], approved_indices: list[int]) -> list[str]:
-    results = []
-    for i, action in enumerate(plan):
-        if i in approved_indices:
-            handler = TOOL_HANDLERS.get(action["tool"])
-            result = handler(action["args"]) if handler else "Ferramenta não encontrada"
-            results.append(f"✅ {action['tool']}: {result}")
-        else:
-            results.append(f"⏭️  {action['tool']}: pulado")
-    return results
+private static final Anthropic client = AnthropicOkHttpClient.fromEnv();
+private static final ObjectMapper mapper = new ObjectMapper();
+
+static List<Map<String, Object>> dryRun(String task) throws Exception {
+    Message response = client.messages().create(
+        MessageCreateParams.builder()
+            .model(Model.CLAUDE_SONNET_4_6)
+            .maxTokens(2048L)
+            .system("""
+                Você deve planejar as ações sem executá-las.
+                Responda APENAS com uma lista JSON de ações no formato:
+                [{"tool": "nome", "args": {...}, "reason": "por que esta ação"}]
+                """)
+            .addUserMessage(task)
+            .build()
+    );
+    String json = response.content().get(0).asText().text();
+    return mapper.readValue(json, new TypeReference<>() {});
+}
+
+@SuppressWarnings("unchecked")
+static List<String> executeApprovedPlan(List<Map<String, Object>> plan, Set<Integer> approvedIndices) {
+    List<String> results = new ArrayList<>();
+    for (int i = 0; i < plan.size(); i++) {
+        Map<String, Object> action = plan.get(i);
+        String toolName = (String) action.get("tool");
+        if (approvedIndices.contains(i)) {
+            var handler = TOOL_HANDLERS.get(toolName);
+            String result = handler != null
+                ? handler.apply((Map<String, Object>) action.get("args"))
+                : "Ferramenta não encontrada";
+            results.add("✅ " + toolName + ": " + result);
+        } else {
+            results.add("⏭️  " + toolName + ": pulado");
+        }
+    }
+    return results;
+}
 ```
 
 ---
@@ -225,27 +258,32 @@ Arquivos modificados: 1 (src/auth/handler.py)
 
 Quando o humano rejeita ou solicita revisão, o feedback deve ser acionável:
 
-```python
-def collect_rejection_feedback(action: str) -> dict:
-    print(f"\nVocê rejeitou: {action}")
-    print("Selecione o motivo (ou escreva feedback livre):")
-    print("1. Ação incorreta — use outra ferramenta")
-    print("2. Argumentos errados — corrija os parâmetros")
-    print("3. Momento errado — execute depois de outra ação")
-    print("4. Não necessária — pule esta ação")
-    print("5. Feedback livre")
+```java
+static Map<String, String> collectRejectionFeedback(String action) {
+    Scanner scanner = new Scanner(System.in);
+    System.out.println("\nVocê rejeitou: " + action);
+    System.out.println("Selecione o motivo (ou escreva feedback livre):");
+    System.out.println("1. Ação incorreta — use outra ferramenta");
+    System.out.println("2. Argumentos errados — corrija os parâmetros");
+    System.out.println("3. Momento errado — execute depois de outra ação");
+    System.out.println("4. Não necessária — pule esta ação");
+    System.out.println("5. Feedback livre");
+    System.out.print("Opção: ");
 
-    choice = input("Opção: ").strip()
-    reasons = {
-        "1": "Ação incorreta",
-        "2": "Argumentos errados",
-        "3": "Momento errado",
-        "4": "Não necessária"
+    String choice = scanner.nextLine().trim();
+    Map<String, String> reasons = Map.of(
+        "1", "Ação incorreta",
+        "2", "Argumentos errados",
+        "3", "Momento errado",
+        "4", "Não necessária"
+    );
+
+    if (reasons.containsKey(choice)) {
+        System.out.print("Detalhes (opcional): ");
+        return Map.of("reason", reasons.get(choice), "feedback", scanner.nextLine());
     }
-
-    if choice in reasons:
-        return {"reason": reasons[choice], "feedback": input("Detalhes (opcional): ")}
-    return {"reason": "Livre", "feedback": choice}
+    return Map.of("reason", "Livre", "feedback", choice);
+}
 ```
 
 ---

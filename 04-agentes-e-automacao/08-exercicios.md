@@ -41,7 +41,7 @@ O agente deve:
 Requisitos mínimos:
 - Máximo de 10 iterações
 - Timeout de 60 segundos
-- Log de cada ação executada
+- Log de cada ação executada com `System.out.println` ou logger estruturado
 
 **Critério de sucesso:** O agente responde corretamente a 3 perguntas diferentes sobre um repositório real sem intervenção humana.
 
@@ -60,7 +60,7 @@ Implemente as seguintes regras:
 2. `write_file` — requer confirmação do usuário, mostrando o caminho e o tamanho do conteúdo
 3. `run_tests` — requer confirmação apenas se o caminho contiver "production" ou "prod"
 
-Teste com a tarefa: "Leia auth.py, identifique melhorias de segurança e implemente as correções."
+Teste com a tarefa: "Leia Auth.java, identifique melhorias de segurança e implemente as correções."
 
 **Critério de sucesso:** O agente para e pede aprovação antes de escrever arquivos, executa autonomamente para leituras e mostra claramente o que vai modificar antes de pedir confirmação.
 
@@ -128,18 +128,28 @@ Destaques: produto X cresceu 45%, produto Y manteve estável.
 3. Itera: implementa → roda testes → se falhar, analisa o output e corrige → repete
 4. Para quando todos os testes passam ou após 5 tentativas
 
-Especificação de teste para usar:
-```python
-def test_basic_discount():
-    assert calculate_discount(100, "bronze") == 95  # 5%
-    assert calculate_discount(100, "silver") == 90  # 10%
-    assert calculate_discount(100, "gold") == 80    # 20%
-    assert calculate_discount(100, "unknown") == 100  # sem desconto
+Especificação de teste para usar (JUnit 5):
+```java
+import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.*;
 
-def test_edge_cases():
-    assert calculate_discount(0, "gold") == 0
-    with pytest.raises(ValueError):
-        calculate_discount(-10, "gold")
+class DiscountTest {
+
+    @Test
+    void basicDiscount() {
+        assertEquals(95,  calculateDiscount(100, "bronze")); // 5%
+        assertEquals(90,  calculateDiscount(100, "silver")); // 10%
+        assertEquals(80,  calculateDiscount(100, "gold"));   // 20%
+        assertEquals(100, calculateDiscount(100, "unknown")); // sem desconto
+    }
+
+    @Test
+    void edgeCases() {
+        assertEquals(0, calculateDiscount(0, "gold"));
+        assertThrows(IllegalArgumentException.class,
+            () -> calculateDiscount(-10, "gold"));
+    }
+}
 ```
 
 **Critério de sucesso:** O agente faz os testes passarem em no máximo 3 iterações para este cenário. O log de cada tentativa mostra claramente o que foi corrigido.
@@ -162,7 +172,7 @@ def test_edge_cases():
 - Input: o JSON do Agente 1
 - Tarefa: implementar exatamente as mudanças especificadas
 
-Cenário: "Adicione logging estruturado (JSON) a todas as funções do módulo `payments.py`."
+Cenário: "Adicione logging estruturado (JSON) a todos os métodos da classe `PaymentService.java`."
 
 **Critério de sucesso:** O Agente 2 implementa com sucesso o que o Agente 1 especificou. As mudanças são coerentes — o Agente 2 não "improvisa" além da spec.
 

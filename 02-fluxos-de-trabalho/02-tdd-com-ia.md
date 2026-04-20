@@ -53,29 +53,31 @@ O desenvolvedor escreve o teste. A IA pode ajudar a **complementar** os casos, m
 ### Exemplo: Feature de validação de cupom
 
 **Você escreve o primeiro teste:**
-```python
-# test_coupon.py
-def test_valid_coupon_applies_discount():
-    order = Order(subtotal=200.0)
-    coupon = Coupon(code="SAVE10", discount_pct=0.10, min_order=100.0)
-    
-    result = apply_coupon(order, coupon)
-    
-    assert result.total == 180.0
+```java
+// CouponTest.java
+@Test
+void validCouponAppliesDiscount() {
+    Order order = new Order(200.0);
+    Coupon coupon = new Coupon("SAVE10", 0.10, 100.0);
+
+    Order result = applyCoupon(order, coupon);
+
+    assertEquals(180.0, result.total(), 0.001);
+}
 ```
 
 **Você pede à IA para completar os casos:**
 ```markdown
-"Dado este teste inicial para a função apply_coupon, identifique os edge cases
-que estão faltando e escreva os testes correspondentes.
+"Dado este teste inicial para o método applyCoupon, identifique os edge cases
+que estão faltando e escreva os testes correspondentes em JUnit 5.
 
 Regras de negócio:
 - Cupom tem valor mínimo de pedido
-- Cupom pode estar expirado (campo expires_at)
-- Cupom pode ter limite de usos (campo max_uses, used_count)
+- Cupom pode estar expirado (campo expiresAt)
+- Cupom pode ter limite de usos (campos maxUses, usedCount)
 - Desconto não pode tornar o total negativo
 
-Escreva apenas os testes — não implemente a função."
+Escreva apenas os testes — não implemente o método."
 ```
 
 ---
@@ -85,17 +87,17 @@ Escreva apenas os testes — não implemente a função."
 Com os testes escritos e falhando (RED confirmado), você pede à IA para implementar:
 
 ```markdown
-"Implemente a função apply_coupon para fazer os seguintes testes passarem.
+"Implemente o método applyCoupon para fazer os seguintes testes JUnit 5 passarem.
 
 Testes:
-```python
+```java
 [cole todos os testes]
 ```
 
 Regras:
 - Implemente o mínimo necessário para os testes passarem
 - Não adicione lógica além do que os testes exigem
-- Use type hints
+- Use records Java para Order e Coupon onde fizer sentido
 - Retorne um novo objeto Order, não modifique o original"
 ```
 
@@ -104,7 +106,7 @@ Regras:
 ### Verificando o GREEN
 
 ```bash
-pytest test_coupon.py -v
+mvn test -Dtest=CouponTest
 # Todos os testes devem passar
 # Se algum falhar, ajuste o prompt — não mude o teste
 ```
@@ -127,7 +129,7 @@ Execute os testes mentalmente antes de propor a mudança."
 
 **Confirme que o REFACTOR não quebrou nada:**
 ```bash
-pytest test_coupon.py -v
+mvn test -Dtest=CouponTest
 # Deve manter 100% de aprovação
 ```
 
@@ -196,27 +198,31 @@ graph TD
 ### Exemplo de Outside-In
 
 **Nível 1 — Aceitação (você escreve):**
-```python
-def test_user_can_reset_password_via_email(client, mailbox):
-    user = create_user(email="user@example.com")
-    
-    client.post("/auth/reset-password", json={"email": "user@example.com"})
-    
-    assert len(mailbox.messages) == 1
-    assert "redefinição" in mailbox.messages[0].subject.lower()
+```java
+@Test
+void userCanResetPasswordViaEmail() {
+    User user = createUser("user@example.com");
+
+    restTemplate.postForEntity("/auth/reset-password",
+        Map.of("email", "user@example.com"), Void.class);
+
+    assertEquals(1, mailbox.getMessages().size());
+    assertTrue(mailbox.getMessages().get(0).getSubject()
+        .toLowerCase().contains("redefinição"));
+}
 ```
 
 **Nível 2 — Integração (IA ajuda):**
 ```markdown
 "Este teste de aceitação precisa de um serviço de reset de senha.
 Quais testes de integração precisamos para o PasswordResetService?
-Liste-os antes de escrever."
+Use JUnit 5 + Mockito. Liste-os antes de escrever."
 ```
 
 **Nível 3 — Unitário (IA gera):**
 ```markdown
-"Agora gere os testes unitários para cada método do PasswordResetService
-identificado no passo anterior."
+"Agora gere os testes unitários JUnit 5 para cada método do PasswordResetService
+identificado no passo anterior. Use @Mock e @InjectMocks do Mockito."
 ```
 
 ---

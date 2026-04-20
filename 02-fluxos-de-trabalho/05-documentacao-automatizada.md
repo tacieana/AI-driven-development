@@ -22,48 +22,49 @@ Documentação é frequentemente a primeira coisa sacrificada sob pressão de pr
 ### Gerando docstrings em lote
 
 ```markdown
-"Adicione docstrings no estilo Google para todas as funções públicas do arquivo abaixo.
+"Adicione Javadoc para todos os métodos públicos do arquivo abaixo.
 
 Convenções:
 - Primeira linha: descrição imperativa em uma frase (máx. 72 chars)
-- Args: liste apenas parâmetros não-óbvios pelo nome e tipo
-- Returns: descreva o que retorna e quando retorna None
-- Raises: liste apenas exceções que o caller precisa tratar
-- Omita: implementação interna, referências ao autor, data
+- @param: liste apenas parâmetros não-óbvios pelo nome e tipo
+- @return: descreva o que retorna e quando retorna null
+- @throws: liste apenas exceções que o caller precisa tratar
+- Omita: detalhes de implementação, referências ao autor, data
 
-Audiência: desenvolvedor Python que nunca viu este código.
+Audiência: desenvolvedor Java que nunca viu este código.
 
-```python
+```java
 [arquivo]
 ```
 "
 ```
 
-### Docstring para função complexa
+### Javadoc para método complexo
 
 ```markdown
-"Escreva a docstring para esta função. Ela tem lógica não-óbvia que precisa de explicação.
+"Escreva o Javadoc para este método. Ele tem lógica não-óbvia que precisa de explicação.
 
-```python
-def paginate_cursor(query, cursor_field, cursor_value, limit):
-    [implementação complexa]
+```java
+public Page<T> paginateCursor(Query query, String cursorField, Object cursorValue, int limit) {
+    // implementação complexa
+}
 ```
 
-A docstring deve explicar:
+O Javadoc deve explicar:
 - O algoritmo de cursor-based pagination usado
 - Por que cursor e não offset
-- O formato esperado de cursor_value
-- O comportamento quando cursor_value aponta para item deletado"
+- O formato esperado de cursorValue
+- O comportamento quando cursorValue aponta para item deletado"
 ```
 
 ### Convenções populares
 
 | Estilo | Usado por | Formato |
 |--------|-----------|---------|
-| **Google** | Google, Anthropic | `Args:`, `Returns:`, `Raises:` com indentação |
-| **NumPy** | Data science, SciPy | `Parameters`, `Returns` com separadores `---` |
-| **reStructuredText** | Sphinx/Python padrão | `:param name:`, `:returns:`, `:rtype:` |
+| **Javadoc** | Java padrão | `@param`, `@return`, `@throws` |
 | **JSDoc** | JavaScript/TypeScript | `@param`, `@returns`, `@throws` |
+| **Google** | Python/outros | `Args:`, `Returns:`, `Raises:` com indentação |
+| **reStructuredText** | Sphinx/Python | `:param name:`, `:returns:`, `:rtype:` |
 
 ---
 
@@ -229,22 +230,22 @@ Omita: campos de auditoria (created_at, updated_at, deleted_at)."
 ## Documentação de API (OpenAPI)
 
 ```markdown
-"Gere a spec OpenAPI 3.1 (YAML) para este endpoint FastAPI.
+"Gere a spec OpenAPI 3.1 (YAML) para este endpoint Spring Boot.
 
-```python
-@router.post("/users/{user_id}/orders")
-async def create_order(
-    user_id: UUID,
-    body: CreateOrderRequest,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-) -> OrderResponse:
-    ...
+```java
+@PostMapping("/users/{userId}/orders")
+public ResponseEntity<OrderResponse> createOrder(
+    @PathVariable UUID userId,
+    @RequestBody @Valid CreateOrderRequest body,
+    @AuthenticationPrincipal UserDetails currentUser
+) {
+    // implementação
+}
 ```
 
 **Models:**
-```python
-[Pydantic models]
+```java
+[Java records/POJOs]
 ```
 
 Inclua:
@@ -259,9 +260,9 @@ Inclua:
 
 ## Documentação Contínua: Integrando ao Fluxo
 
-### Hook de pós-commit para docstrings
+### Hook de pós-escrita para Javadoc
 
-Com Claude Code hooks, você pode verificar automaticamente se novas funções têm docstring:
+Com Claude Code hooks, você pode verificar automaticamente se novos métodos públicos têm Javadoc:
 
 ```json
 // .claude/settings.json
@@ -271,7 +272,7 @@ Com Claude Code hooks, você pode verificar automaticamente se novas funções t
       "matcher": "Edit|Write",
       "hooks": [{
         "type": "command",
-        "command": "python scripts/check_docstrings.py"
+        "command": "mvn checkstyle:check -Dcheckstyle.config.location=checkstyle.xml"
       }]
     }]
   }

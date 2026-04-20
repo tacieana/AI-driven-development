@@ -73,38 +73,58 @@ gantt
 
 Sequencial: 9s. Paralelo: 3s.
 
-**Em Python com asyncio e Anthropic SDK:**
+**Em Java com CompletableFuture e virtual threads:**
 
-```python
-import asyncio
-import anthropic
+```java
+import com.anthropic.client.Anthropic;
+import com.anthropic.client.okhttp.AnthropicOkHttpClient;
+import com.anthropic.models.messages.*;
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.stream.*;
 
-client = anthropic.AsyncAnthropic()
+public class ParallelAgents {
 
-async def run_subagent(task: str, context: str) -> str:
-    response = await client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=4096,
-        system=f"Você é um especialista em desenvolvimento de software.\n\nContexto do projeto:\n{context}",
-        messages=[{"role": "user", "content": task}]
-    )
-    return response.content[0].text
+    private static final Anthropic client = AnthropicOkHttpClient.fromEnv();
 
-async def run_parallel_agents(subtasks: list[dict]) -> list[str]:
-    tasks = [
-        run_subagent(st["task"], st["context"])
-        for st in subtasks
-    ]
-    return await asyncio.gather(*tasks)
+    static String runSubagent(String task, String context) {
+        Message response = client.messages().create(
+            MessageCreateParams.builder()
+                .model(Model.CLAUDE_SONNET_4_6)
+                .maxTokens(4096L)
+                .system("Você é um especialista em desenvolvimento de software.\n\nContexto do projeto:\n" + context)
+                .addUserMessage(task)
+                .build()
+        );
+        return response.content().get(0).asText().text();
+    }
 
-# Uso
-subtasks = [
-    {"task": "Implemente o módulo de autenticação JWT", "context": "...contexto auth..."},
-    {"task": "Implemente o módulo de pagamentos", "context": "...contexto payments..."},
-    {"task": "Implemente os testes de integração", "context": "...contexto testes..."},
-]
+    static List<String> runParallelAgents(List<Map<String, String>> subtasks) throws Exception {
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            List<CompletableFuture<String>> futures = subtasks.stream()
+                .map(st -> CompletableFuture.supplyAsync(
+                    () -> runSubagent(st.get("task"), st.get("context")),
+                    executor
+                ))
+                .toList();
+            return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                .thenApply(v -> futures.stream()
+                    .map(CompletableFuture::join)
+                    .collect(Collectors.toList()))
+                .get();
+        }
+    }
 
-results = asyncio.run(run_parallel_agents(subtasks))
+    public static void main(String[] args) throws Exception {
+        List<Map<String, String>> subtasks = List.of(
+            Map.of("task", "Implemente o módulo de autenticação JWT", "context", "...contexto auth..."),
+            Map.of("task", "Implemente o módulo de pagamentos",       "context", "...contexto payments..."),
+            Map.of("task", "Implemente os testes de integração",      "context", "...contexto testes...")
+        );
+        List<String> results = runParallelAgents(subtasks);
+        results.forEach(System.out::println);
+    }
+}
 ```
 
 > 📌 **Referência:** docs.anthropic.com/en/docs/about-claude/models/overview
@@ -115,26 +135,33 @@ results = asyncio.run(run_parallel_agents(subtasks))
 
 Quando subagentes executam em sequência, o resultado de um precisa ser passado de forma estruturada para o próximo.
 
-```python
-from dataclasses import dataclass
+```java
+import java.util.List;
 
-@dataclass
-class AgentResult:
-    status: str          # "success" | "error" | "needs_review"
-    output: str          # o resultado principal
-    artifacts: list[str] # arquivos criados/modificados
-    notes: str           # observações para o próximo agente
+record AgentResult(
+    String status,          // "success" | "error" | "needs_review"
+    String output,          // o resultado principal
+    List<String> artifacts, // arquivos criados/modificados
+    String notes            // observações para o próximo agente
+) {}
 
-def build_handoff_prompt(previous: AgentResult, next_task: str) -> str:
-    return f"""
-Contexto do passo anterior:
-- Status: {previous.status}
-- Output: {previous.output}
-- Artefatos gerados: {', '.join(previous.artifacts)}
-- Observações: {previous.notes}
+static String buildHandoffPrompt(AgentResult previous, String nextTask) {
+    return """
+        Contexto do passo anterior:
+        - Status: %s
+        - Output: %s
+        - Artefatos gerados: %s
+        - Observações: %s
 
-Sua tarefa: {next_task}
-"""
+        Sua tarefa: %s
+        """.formatted(
+            previous.status(),
+            previous.output(),
+            String.join(", ", previous.artifacts()),
+            previous.notes(),
+            nextTask
+        );
+}
 ```
 
 ---

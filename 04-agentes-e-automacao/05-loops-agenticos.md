@@ -50,38 +50,40 @@ O loop deve ter critérios de parada claros. Sem eles, o agente pode iterar inde
 
 ### Implementando critérios robustos
 
-```python
-import time
-from dataclasses import dataclass, field
+```java
+public record AgentConfig(
+    int maxIterations,    // default: 15
+    int timeoutSeconds,   // default: 300
+    double maxCostUsd     // default: 1.0
+) {
+    public AgentConfig() { this(15, 300, 1.0); }
+}
 
-@dataclass
-class AgentConfig:
-    max_iterations: int = 15
-    timeout_seconds: int = 300
-    max_cost_usd: float = 1.0
+public class AgentState {
+    int iteration = 0;
+    long startTime = System.currentTimeMillis();
+    long inputTokens = 0;
+    long outputTokens = 0;
 
-@dataclass
-class AgentState:
-    iteration: int = 0
-    start_time: float = field(default_factory=time.time)
-    input_tokens: int = 0
-    output_tokens: int = 0
+    double elapsed() { return (System.currentTimeMillis() - startTime) / 1000.0; }
 
-    def elapsed(self) -> float:
-        return time.time() - self.start_time
+    // claude-sonnet-4-6: $3/MTok input, $15/MTok output
+    double estimatedCost() {
+        return (inputTokens * 3 + outputTokens * 15) / 1_000_000.0;
+    }
+}
 
-    def estimated_cost(self) -> float:
-        # claude-sonnet-4-6: $3/MTok input, $15/MTok output
-        return (self.input_tokens * 3 + self.output_tokens * 15) / 1_000_000
+record StopDecision(boolean stop, String reason) {}
 
-def should_stop(state: AgentState, config: AgentConfig) -> tuple[bool, str]:
-    if state.iteration >= config.max_iterations:
-        return True, f"Limite de {config.max_iterations} iterações atingido"
-    if state.elapsed() > config.timeout_seconds:
-        return True, f"Timeout de {config.timeout_seconds}s atingido"
-    if state.estimated_cost() > config.max_cost_usd:
-        return True, f"Limite de custo ${config.max_cost_usd} atingido"
-    return False, ""
+static StopDecision shouldStop(AgentState state, AgentConfig config) {
+    if (state.iteration >= config.maxIterations())
+        return new StopDecision(true, "Limite de " + config.maxIterations() + " iterações atingido");
+    if (state.elapsed() > config.timeoutSeconds())
+        return new StopDecision(true, "Timeout de " + config.timeoutSeconds() + "s atingido");
+    if (state.estimatedCost() > config.maxCostUsd())
+        return new StopDecision(true, "Limite de custo $" + config.maxCostUsd() + " atingido");
+    return new StopDecision(false, "");
+}
 ```
 
 ---
@@ -90,56 +92,84 @@ def should_stop(state: AgentState, config: AgentConfig) -> tuple[bool, str]:
 
 ### Loop básico com controle de parada
 
-```python
-import anthropic
+```java
+import com.anthropic.client.Anthropic;
+import com.anthropic.client.okhttp.AnthropicOkHttpClient;
+import com.anthropic.models.messages.*;
+import java.util.*;
+import java.util.function.Function;
 
-client = anthropic.Anthropic()
+public class AgentLoop {
 
-def run_agent_loop(
-    task: str,
-    tools: list,
-    tool_handlers: dict,
-    config: AgentConfig = AgentConfig()
-) -> str:
-    messages = [{"role": "user", "content": task}]
-    state = AgentState()
+    private static final Anthropic client = AnthropicOkHttpClient.fromEnv();
 
-    while True:
-        stop, reason = should_stop(state, config)
-        if stop:
-            return f"[Agente interrompido: {reason}]"
+    @SuppressWarnings("unchecked")
+    static String runAgentLoop(
+        String task,
+        List<ToolParam> tools,
+        Map<String, Function<Map<String, Object>, String>> toolHandlers,
+        AgentConfig config
+    ) {
+        List<MessageParam> messages = new ArrayList<>(List.of(
+            MessageParam.builder().role(MessageParam.Role.USER).content(task).build()
+        ));
+        AgentState state = new AgentState();
 
-        response = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=4096,
-            tools=tools,
-            messages=messages
-        )
+        while (true) {
+            StopDecision stop = shouldStop(state, config);
+            if (stop.stop()) return "[Agente interrompido: " + stop.reason() + "]";
 
-        state.iteration += 1
-        state.input_tokens += response.usage.input_tokens
-        state.output_tokens += response.usage.output_tokens
+            Message response = client.messages().create(
+                MessageCreateParams.builder()
+                    .model(Model.CLAUDE_SONNET_4_6)
+                    .maxTokens(4096L)
+                    .tools(tools)
+                    .messages(messages)
+                    .build()
+            );
 
-        messages.append({"role": "assistant", "content": response.content})
+            state.iteration++;
+            state.inputTokens  += response.usage().inputTokens();
+            state.outputTokens += response.usage().outputTokens();
 
-        if response.stop_reason == "end_turn":
-            return next(
-                (b.text for b in response.content if hasattr(b, "text")),
-                "Concluído."
-            )
+            messages.add(MessageParam.builder()
+                .role(MessageParam.Role.ASSISTANT)
+                .content(response.content())
+                .build());
 
-        if response.stop_reason == "tool_use":
-            tool_results = []
-            for block in response.content:
-                if block.type == "tool_use":
-                    handler = tool_handlers.get(block.name)
-                    result = handler(block.input) if handler else f"Ferramenta não encontrada: {block.name}"
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": result
-                    })
-            messages.append({"role": "user", "content": tool_results})
+            if (response.stopReason() == StopReason.END_TURN) {
+                return response.content().stream()
+                    .filter(ContentBlock::isText)
+                    .map(b -> b.asText().text())
+                    .findFirst()
+                    .orElse("Concluído.");
+            }
+
+            if (response.stopReason() == StopReason.TOOL_USE) {
+                List<ContentBlockParam> toolResults = new ArrayList<>();
+                for (ContentBlock block : response.content()) {
+                    if (block.isToolUse()) {
+                        ToolUseBlock use = block.asToolUse();
+                        var handler = toolHandlers.get(use.name());
+                        String result = handler != null
+                            ? handler.apply((Map<String, Object>) use.input())
+                            : "Ferramenta não encontrada: " + use.name();
+                        toolResults.add(ContentBlockParam.ofToolResult(
+                            ToolResultBlockParam.builder()
+                                .toolUseId(use.id())
+                                .content(result)
+                                .build()
+                        ));
+                    }
+                }
+                messages.add(MessageParam.builder()
+                    .role(MessageParam.Role.USER)
+                    .content(toolResults)
+                    .build());
+            }
+        }
+    }
+}
 ```
 
 ---
@@ -159,23 +189,23 @@ flowchart TD
     ITER -- "Não" --> FAIL["Falha: máx iterações"]
 ```
 
-```python
-def run_until_tests_pass(task: str, max_retries: int = 5) -> str:
-    result = run_agent_loop(task, tools, tool_handlers)
+```java
+static String runUntilTestsPass(String task, int maxRetries) {
+    String result = runAgentLoop(task, tools, toolHandlers, new AgentConfig());
 
-    for attempt in range(max_retries):
-        test_output = run_tests()
-        if "failed" not in test_output and "error" not in test_output.lower():
-            return f"✅ Concluído após {attempt + 1} tentativas\n{result}"
-
-        fix_prompt = (
-            f"Os testes falharam após sua implementação. Corrija:\n\n"
-            f"Output dos testes:\n{test_output}\n\n"
-            f"Sua implementação anterior:\n{result}"
-        )
-        result = run_agent_loop(fix_prompt, tools, tool_handlers)
-
-    return f"❌ Não foi possível fazer os testes passarem em {max_retries} tentativas"
+    for (int attempt = 0; attempt < maxRetries; attempt++) {
+        String testOutput = runTests("");
+        if (!testOutput.contains("FAILED") && !testOutput.toLowerCase().contains("error")) {
+            return "✅ Concluído após " + (attempt + 1) + " tentativas\n" + result;
+        }
+        String fixPrompt =
+            "Os testes falharam após sua implementação. Corrija:\n\n" +
+            "Output dos testes:\n" + testOutput + "\n\n" +
+            "Sua implementação anterior:\n" + result;
+        result = runAgentLoop(fixPrompt, tools, toolHandlers, new AgentConfig());
+    }
+    return "❌ Não foi possível fazer os testes passarem em " + maxRetries + " tentativas";
+}
 ```
 
 ---
@@ -200,40 +230,45 @@ O agente tenta corrigir um erro, introduz outro, tenta corrigir esse, e assim po
 
 **Solução:** limite de iterações + checkpoint de estado limpo.
 
-```python
-# Salve o estado antes de cada iteração
-# Se detectar que está em espiral, restaure ao último bom estado
-def detect_spiral(error_history: list[str], window: int = 3) -> bool:
-    if len(error_history) < window:
-        return False
-    recent = error_history[-window:]
-    return len(set(recent)) == 1  # mesmo erro repetindo
+```java
+// Salve o estado antes de cada iteração
+// Se detectar que está em espiral, restaure ao último bom estado
+static boolean detectSpiral(List<String> errorHistory, int window) {
+    if (errorHistory.size() < window) return false;
+    List<String> recent = errorHistory.subList(errorHistory.size() - window, errorHistory.size());
+    return new HashSet<>(recent).size() == 1; // mesmo erro repetindo
+}
 ```
 
 ### 3. Context overflow silencioso
 
 Em loops longos, o histórico de mensagens pode ultrapassar a janela de contexto.
 
-```python
-def trim_messages_if_needed(messages: list, max_tokens: int = 150_000) -> list:
-    # Estimativa simples: 4 chars = 1 token
-    total = sum(len(str(m)) // 4 for m in messages)
-    if total > max_tokens:
-        # Mantém system prompt (messages[0]) e as últimas N mensagens
-        return [messages[0]] + messages[-10:]
-    return messages
+```java
+static List<MessageParam> trimMessagesIfNeeded(List<MessageParam> messages, int maxTokens) {
+    // Estimativa simples: 4 chars = 1 token
+    long total = messages.stream().mapToLong(m -> m.toString().length() / 4).sum();
+    if (total > maxTokens) {
+        // Mantém a primeira mensagem (tarefa original) e as últimas 10
+        List<MessageParam> trimmed = new ArrayList<>();
+        trimmed.add(messages.get(0));
+        trimmed.addAll(messages.subList(Math.max(1, messages.size() - 10), messages.size()));
+        return trimmed;
+    }
+    return messages;
+}
 ```
 
 ### 4. Ação repetida sem progresso
 
 O agente chama a mesma ferramenta com os mesmos argumentos repetidamente.
 
-```python
-def detect_repeated_actions(action_log: list[tuple], window: int = 3) -> bool:
-    if len(action_log) < window:
-        return False
-    recent = action_log[-window:]
-    return len(set(recent)) == 1
+```java
+static boolean detectRepeatedActions(List<String> actionLog, int window) {
+    if (actionLog.size() < window) return false;
+    List<String> recent = actionLog.subList(actionLog.size() - window, actionLog.size());
+    return new HashSet<>(recent).size() == 1;
+}
 ```
 
 ---
@@ -242,21 +277,29 @@ def detect_repeated_actions(action_log: list[tuple], window: int = 3) -> bool:
 
 Logs estruturados são essenciais para depurar loops agênticos:
 
-```python
-import json
-from datetime import datetime
+```java
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.Instant;
+import java.util.*;
 
-def log_iteration(iteration: int, action: str, result: str, state: AgentState) -> None:
-    log = {
-        "timestamp": datetime.utcnow().isoformat(),
-        "iteration": iteration,
-        "action": action,
-        "result_preview": result[:200],
-        "elapsed_s": round(state.elapsed(), 2),
-        "tokens": state.input_tokens + state.output_tokens,
-        "estimated_cost_usd": round(state.estimated_cost(), 4)
+private static final ObjectMapper mapper = new ObjectMapper();
+
+static void logIteration(int iteration, String action, String result, AgentState state) {
+    try {
+        Map<String, Object> log = Map.of(
+            "timestamp",          Instant.now().toString(),
+            "iteration",          iteration,
+            "action",             action,
+            "result_preview",     result.substring(0, Math.min(200, result.length())),
+            "elapsed_s",          Math.round(state.elapsed() * 100) / 100.0,
+            "tokens",             state.inputTokens + state.outputTokens,
+            "estimated_cost_usd", Math.round(state.estimatedCost() * 10000) / 10000.0
+        );
+        System.out.println(mapper.writeValueAsString(log));
+    } catch (Exception e) {
+        System.err.println("Erro ao logar iteração: " + e.getMessage());
     }
-    print(json.dumps(log))
+}
 ```
 
 ---

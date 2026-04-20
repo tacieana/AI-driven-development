@@ -91,77 +91,77 @@ claude mcp add postgres -- npx -y @modelcontextprotocol/server-postgres \
 
 **Tarefa:** Crie um servidor MCP que expõe informações sobre o ambiente de desenvolvimento:
 
-```python
-# dev_info_mcp.py
-from mcp.server import Server
-from mcp.server.stdio import stdio_server
-from mcp import types
-import subprocess
-import sys
-import platform
+```typescript
+// src/index.ts
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { execSync } from "child_process";
+import os from "os";
 
-app = Server("dev-info")
+const server = new Server(
+  { name: "dev-info", version: "1.0.0" },
+  { capabilities: { tools: {} } }
+);
 
-@app.list_tools()
-async def list_tools() -> list[types.Tool]:
-    return [
-        types.Tool(
-            name="get_python_version",
-            description="Retorna a versão do Python instalada",
-            inputSchema={"type": "object", "properties": {}}
-        ),
-        types.Tool(
-            name="list_installed_packages",
-            description="Lista pacotes Python instalados com suas versões",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "filter": {
-                        "type": "string",
-                        "description": "Filtro opcional por nome de pacote"
-                    }
-                }
-            }
-        ),
-        types.Tool(
-            name="get_system_info",
-            description="Retorna informações básicas do sistema operacional",
-            inputSchema={"type": "object", "properties": {}}
-        )
-    ]
+server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  tools: [
+    {
+      name: "get_java_version",
+      description: "Retorna a versão do Java instalada",
+      inputSchema: { type: "object", properties: {} },
+    },
+    {
+      name: "list_maven_dependencies",
+      description: "Lista dependências Maven do projeto",
+      inputSchema: {
+        type: "object",
+        properties: {
+          filter: { type: "string", description: "Filtro opcional por nome de dependência" },
+        },
+      },
+    },
+    {
+      name: "get_system_info",
+      description: "Retorna informações básicas do sistema operacional",
+      inputSchema: { type: "object", properties: {} },
+    },
+  ],
+}));
 
-@app.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
-    if name == "get_python_version":
-        version = sys.version
-        return [types.TextContent(type="text", text=f"Python {version}")]
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  const { name, arguments: args } = request.params;
 
-    if name == "list_installed_packages":
-        result = subprocess.run(
-            [sys.executable, "-m", "pip", "list"],
-            capture_output=True, text=True
-        )
-        output = result.stdout
-        if filter_str := arguments.get("filter"):
-            lines = [l for l in output.split("\n") if filter_str.lower() in l.lower()]
-            output = "\n".join(lines)
-        return [types.TextContent(type="text", text=output)]
+  if (name === "get_java_version") {
+    const version = execSync("java -version 2>&1").toString().trim();
+    return { content: [{ type: "text", text: version }] };
+  }
 
-    if name == "get_system_info":
-        info = f"OS: {platform.system()} {platform.release()}\nArch: {platform.machine()}"
-        return [types.TextContent(type="text", text=info)]
+  if (name === "list_maven_dependencies") {
+    const output = execSync("mvn dependency:list -q 2>/dev/null").toString();
+    const { filter } = args as { filter?: string };
+    const lines = filter
+      ? output.split("\n").filter(l => l.toLowerCase().includes(filter.toLowerCase()))
+      : output.split("\n");
+    return { content: [{ type: "text", text: lines.join("\n") }] };
+  }
 
-    raise ValueError(f"Tool não encontrada: {name}")
+  if (name === "get_system_info") {
+    const info = `OS: ${os.type()} ${os.release()}\nArch: ${os.arch()}\nNode: ${process.version}`;
+    return { content: [{ type: "text", text: info }] };
+  }
 
-if __name__ == "__main__":
-    import asyncio
-    asyncio.run(stdio_server(app))
+  throw new Error(`Tool não encontrada: ${name}`);
+});
+
+const transport = new StdioServerTransport();
+await server.connect(transport);
 ```
 
-1. Instale o SDK: `pip install mcp`
+1. Instale o SDK: `npm install @modelcontextprotocol/sdk`
 2. Salve o código acima
-3. Adicione ao Claude Code: `claude mcp add dev-info python dev_info_mcp.py`
-4. Em uma sessão, peça ao Claude Code: "Qual versão do Python estou usando? Tenho o pytest instalado?"
+3. Adicione ao Claude Code: `claude mcp add dev-info -- npx ts-node src/index.ts`
+4. Em uma sessão, peça ao Claude Code: "Qual versão do Java estou usando? Tenho o junit instalado como dependência?"
 
 **Critério de sucesso:** O Claude Code usa as tools do seu servidor para responder as perguntas.
 
@@ -171,41 +171,34 @@ if __name__ == "__main__":
 
 **Objetivo:** Adicionar resources ao servidor criado no exercício anterior.
 
-**Tarefa:** Estenda o `dev_info_mcp.py` para expor os arquivos de configuração do projeto como resources:
+**Tarefa:** Estenda o servidor `dev-info` para expor os arquivos de configuração do projeto como resources:
 
-```python
-import os
-from pathlib import Path
+```typescript
+import { existsSync, readFileSync } from "fs";
+import { ListResourcesRequestSchema, ReadResourceRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 
-@app.list_resources()
-async def list_resources() -> list[types.Resource]:
-    config_files = []
-    config_patterns = [
-        "pyproject.toml", "setup.py", "requirements.txt",
-        "package.json", ".env.example", "Makefile"
-    ]
-    for pattern in config_patterns:
-        if Path(pattern).exists():
-            config_files.append(
-                types.Resource(
-                    uri=f"project://config/{pattern}",
-                    name=pattern,
-                    description=f"Arquivo de configuração: {pattern}",
-                    mimeType="text/plain"
-                )
-            )
-    return config_files
+server.setRequestHandler(ListResourcesRequestSchema, async () => {
+  const configFiles = ["pom.xml", "build.gradle", "package.json", ".env.example", "Makefile"];
+  const resources = configFiles
+    .filter(f => existsSync(f))
+    .map(f => ({
+      uri: `project://config/${f}`,
+      name: f,
+      description: `Arquivo de configuração: ${f}`,
+      mimeType: "text/plain",
+    }));
+  return { resources };
+});
 
-@app.read_resource()
-async def read_resource(uri: str) -> str:
-    filename = uri.replace("project://config/", "")
-    path = Path(filename)
-    if not path.exists():
-        raise ValueError(f"Arquivo não encontrado: {filename}")
-    return path.read_text()
+server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+  const filename = request.params.uri.replace("project://config/", "");
+  if (!existsSync(filename)) throw new Error(`Arquivo não encontrado: ${filename}`);
+  const text = readFileSync(filename, "utf-8");
+  return { contents: [{ uri: request.params.uri, mimeType: "text/plain", text }] };
+});
 ```
 
-Teste pedindo ao Claude Code: "Leia o requirements.txt e me diga se estou usando versões fixas ou ranges para as dependências."
+Teste pedindo ao Claude Code: "Leia o pom.xml e me diga quais são as versões das minhas dependências principais."
 
 **Critério de sucesso:** O Claude Code acessa o resource, lê o arquivo e responde com base no conteúdo real.
 

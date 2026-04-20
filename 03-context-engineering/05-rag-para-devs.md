@@ -95,47 +95,84 @@ grep -r "payment" src/ --include="*.py" -l
 
 ### Opção 3: RAG com Embeddings Locais
 
-Para volumes maiores, um setup mínimo com Python:
+Para volumes maiores, um setup mínimo com Java usando o Anthropic SDK e ChromaDB:
 
-```python
-# pip install anthropic chromadb
-import anthropic
-import chromadb
-from pathlib import Path
+```java
+// pom.xml:
+// <dependency>
+//   <groupId>com.anthropic</groupId>
+//   <artifactId>anthropic-java</artifactId>
+//   <version>1.3.0</version>
+// </dependency>
+// <dependency>
+//   <groupId>tech.amikos.chromadb</groupId>
+//   <artifactId>chromadb-java-client</artifactId>
+//   <version>0.1.7</version>
+// </dependency>
 
-client = anthropic.Anthropic()
-chroma = chromadb.Client()
-collection = chroma.create_collection("docs")
+import com.anthropic.client.Anthropic;
+import com.anthropic.client.okhttp.AnthropicOkHttpClient;
+import com.anthropic.models.messages.*;
+import tech.amikos.chromadb.*;
+import java.nio.file.*;
+import java.util.*;
 
-# Indexação
-def index_docs(docs_path: str) -> None:
-    for path in Path(docs_path).glob("**/*.md"):
-        content = path.read_text()
-        chunks = content.split("\n\n")  # split por parágrafo
-        for i, chunk in enumerate(chunks):
-            if len(chunk) > 100:  # ignora chunks muito pequenos
-                collection.add(
-                    documents=[chunk],
-                    ids=[f"{path.name}_{i}"]
-                )
+public class RagPipeline {
 
-# Busca
-def retrieve(query: str, n_results: int = 3) -> list[str]:
-    results = collection.query(query_texts=[query], n_results=n_results)
-    return results["documents"][0]
+    private final Anthropic client = AnthropicOkHttpClient.fromEnv();
+    private final ChromaClient chroma = new ChromaClient("http://localhost:8000");
+    private Collection collection;
 
-# Uso
-index_docs("./docs")
-chunks = retrieve("como funciona a autenticação JWT")
-context = "\n\n---\n\n".join(chunks)
+    public void indexDocs(String docsPath) throws Exception {
+        collection = chroma.createCollection("docs", null, true, null);
 
-response = client.messages.create(
-    model="claude-sonnet-4-6",
-    max_tokens=1024,
-    system=f"Use a documentação abaixo para responder:\n\n{context}",
-    messages=[{"role": "user", "content": "Como funciona a autenticação JWT?"}]
-)
-print(response.content[0].text)
+        try (var stream = Files.walk(Path.of(docsPath))) {
+            stream.filter(p -> p.toString().endsWith(".md"))
+                  .forEach(path -> {
+                      try {
+                          String content = Files.readString(path);
+                          String[] chunks = content.split("\n\n");
+                          List<String> docs = new ArrayList<>();
+                          List<String> ids = new ArrayList<>();
+                          for (int i = 0; i < chunks.length; i++) {
+                              if (chunks[i].length() > 100) {
+                                  docs.add(chunks[i]);
+                                  ids.add(path.getFileName() + "_" + i);
+                              }
+                          }
+                          if (!docs.isEmpty()) {
+                              collection.add(null, null, docs, ids);
+                          }
+                      } catch (Exception e) {
+                          throw new RuntimeException(e);
+                      }
+                  });
+        }
+    }
+
+    public String answer(String question) throws Exception {
+        // Recupera chunks relevantes
+        QueryResponse results = collection.query(List.of(question), 3, null, null, null);
+        String context = String.join("\n\n---\n\n", results.getDocuments().get(0));
+
+        Message response = client.messages().create(
+            MessageCreateParams.builder()
+                .model(Model.CLAUDE_SONNET_4_6)
+                .maxTokens(1024L)
+                .system("Use a documentação abaixo para responder:\n\n" + context)
+                .addUserMessage(question)
+                .build()
+        );
+
+        return response.content().get(0).asText().text();
+    }
+
+    public static void main(String[] args) throws Exception {
+        var rag = new RagPipeline();
+        rag.indexDocs("./docs");
+        System.out.println(rag.answer("Como funciona a autenticação JWT?"));
+    }
+}
 ```
 
 > 📌 **Referência:** docs.anthropic.com/en/docs/about-claude/models/overview
@@ -155,15 +192,17 @@ A qualidade do RAG depende muito de como os documentos são divididos em chunks.
 
 **Overlap entre chunks:**
 
-```python
-# Chunk com overlap evita perda de contexto nas bordas
-def chunk_with_overlap(text: str, chunk_size: int = 500, overlap: int = 100) -> list[str]:
-    words = text.split()
-    chunks = []
-    for i in range(0, len(words), chunk_size - overlap):
-        chunk = " ".join(words[i:i + chunk_size])
-        chunks.append(chunk)
-    return chunks
+```java
+// Chunk com overlap evita perda de contexto nas bordas
+public static List<String> chunkWithOverlap(String text, int chunkSize, int overlap) {
+    String[] words = text.split("\\s+");
+    List<String> chunks = new ArrayList<>();
+    for (int i = 0; i < words.length; i += chunkSize - overlap) {
+        int end = Math.min(i + chunkSize, words.length);
+        chunks.add(String.join(" ", Arrays.copyOfRange(words, i, end)));
+    }
+    return chunks;
+}
 ```
 
 ---
@@ -191,16 +230,24 @@ def chunk_with_overlap(text: str, chunk_size: int = 500, overlap: int = 100) -> 
 
 Para bibliotecas que o modelo não conhece bem (nova, obscura, ou muito atualizada), inclua a documentação oficial diretamente:
 
-```python
-# Usando WebFetch para pegar documentação atualizada
-import httpx
+```java
+// Usando java.net.http para buscar documentação atualizada
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 
-def fetch_docs(url: str) -> str:
-    response = httpx.get(url)
-    return response.text
+public static String fetchDocs(String url) throws Exception {
+    var httpClient = HttpClient.newHttpClient();
+    var request = HttpRequest.newBuilder()
+        .uri(URI.create(url))
+        .GET()
+        .build();
+    return httpClient.send(request, HttpResponse.BodyHandlers.ofString()).body();
+}
 
-# Inclua no system prompt ou no contexto do usuário
-latest_docs = fetch_docs("https://docs.exemplo.com/api-reference")
+// Inclua no system prompt ou no contexto do usuário
+String latestDocs = fetchDocs("https://docs.exemplo.com/api-reference");
 ```
 
 ---
@@ -225,56 +272,81 @@ Para a maioria dos casos de uso em desenvolvimento de software, RAG é a escolha
 
 ## Pipeline RAG com Claude: Exemplo Completo
 
-```python
-import anthropic
-import chromadb
-from pathlib import Path
+```java
+import com.anthropic.client.Anthropic;
+import com.anthropic.client.okhttp.AnthropicOkHttpClient;
+import com.anthropic.models.messages.*;
+import tech.amikos.chromadb.*;
+import java.nio.file.*;
+import java.util.*;
+import java.util.function.Function;
 
-def build_rag_pipeline(docs_dir: str):
-    client = anthropic.Anthropic()
-    chroma = chromadb.Client()
-    collection = chroma.get_or_create_collection("project_docs")
+public class RagPipelineCompleto {
 
-    # Indexa documentos
-    for path in Path(docs_dir).rglob("*.md"):
-        text = path.read_text(encoding="utf-8")
-        sections = [s for s in text.split("\n## ") if len(s) > 150]
-        for i, section in enumerate(sections):
-            collection.upsert(
-                documents=[section],
-                ids=[f"{path.stem}_{i}"],
-                metadatas=[{"source": str(path)}]
-            )
+    public static Function<String, String> buildRagPipeline(String docsDir) throws Exception {
+        Anthropic client = AnthropicOkHttpClient.fromEnv();
+        ChromaClient chroma = new ChromaClient("http://localhost:8000");
+        Collection collection = chroma.getOrCreateCollection("project_docs", null, null);
 
-    def answer(question: str) -> str:
-        # Recupera chunks relevantes
-        results = collection.query(query_texts=[question], n_results=4)
-        chunks = results["documents"][0]
-        sources = [m["source"] for m in results["metadatas"][0]]
+        // Indexa documentos
+        try (var stream = Files.walk(Path.of(docsDir))) {
+            stream.filter(p -> p.toString().endsWith(".md"))
+                  .forEach(path -> {
+                      try {
+                          String text = Files.readString(path);
+                          String[] sections = text.split("\n## ");
+                          List<String> docs = new ArrayList<>();
+                          List<String> ids = new ArrayList<>();
+                          List<Map<String, String>> metas = new ArrayList<>();
+                          for (int i = 0; i < sections.length; i++) {
+                              if (sections[i].length() > 150) {
+                                  docs.add(sections[i]);
+                                  ids.add(path.getFileName().toString().replace(".md", "") + "_" + i);
+                                  metas.add(Map.of("source", path.toString()));
+                              }
+                          }
+                          if (!docs.isEmpty()) collection.upsert(null, metas, docs, ids);
+                      } catch (Exception e) { throw new RuntimeException(e); }
+                  });
+        }
 
-        context = "\n\n---\n\n".join(
-            f"[Fonte: {src}]\n{chunk}"
-            for src, chunk in zip(sources, chunks)
-        )
+        return question -> {
+            try {
+                QueryResponse results = collection.query(List.of(question), 4, null, null, null);
+                List<String> chunks  = results.getDocuments().get(0);
+                List<Map<String, Object>> metadatas = results.getMetadatas().get(0);
 
-        response = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=2048,
-            system=(
-                "Você é um assistente técnico com acesso à documentação do projeto. "
-                "Responda com base nos trechos fornecidos. "
-                "Se a informação não estiver nos trechos, diga explicitamente.\n\n"
-                f"Documentação relevante:\n\n{context}"
-            ),
-            messages=[{"role": "user", "content": question}]
-        )
-        return response.content[0].text
+                StringBuilder ctx = new StringBuilder();
+                for (int i = 0; i < chunks.size(); i++) {
+                    ctx.append("[Fonte: ").append(metadatas.get(i).get("source"))
+                       .append("]\n").append(chunks.get(i)).append("\n\n---\n\n");
+                }
 
-    return answer
+                Message response = client.messages().create(
+                    MessageCreateParams.builder()
+                        .model(Model.CLAUDE_SONNET_4_6)
+                        .maxTokens(2048L)
+                        .system("""
+                            Você é um assistente técnico com acesso à documentação do projeto.
+                            Responda com base nos trechos fornecidos.
+                            Se a informação não estiver nos trechos, diga explicitamente.
 
-# Uso
-ask = build_rag_pipeline("./docs")
-print(ask("Como autenticar requisições na API?"))
+                            Documentação relevante:
+
+                            """ + ctx)
+                        .addUserMessage(question)
+                        .build()
+                );
+                return response.content().get(0).asText().text();
+            } catch (Exception e) { throw new RuntimeException(e); }
+        };
+    }
+
+    public static void main(String[] args) throws Exception {
+        var ask = buildRagPipeline("./docs");
+        System.out.println(ask("Como autenticar requisições na API?"));
+    }
+}
 ```
 
 ---

@@ -40,30 +40,36 @@ Todo prompt de debugging precisa de **4 elementos**:
 
 ```markdown
 "[CÓDIGO]
-```python
-async def get_user_orders(user_id: str, db: AsyncSession) -> list[Order]:
-    result = await db.execute(
-        select(Order)
-        .where(Order.user_id == user_id)
-        .options(selectinload(Order.items))
-    )
-    return result.scalars().all()
+```java
+@Repository
+public class OrderRepository {
+    @PersistenceContext
+    private EntityManager em;
+
+    public List<Order> findByUserId(String userId) {
+        return em.createQuery(
+            "SELECT o FROM Order o LEFT JOIN FETCH o.items WHERE o.userId = :userId",
+            Order.class
+        ).setParameter("userId", userId).getResultList();
+    }
+}
 ```
 
 [EVIDÊNCIAS]
 Stack trace:
 ```
-sqlalchemy.exc.MissingGreenlet: greenlet_spawn has not been called; ...
-at line: return result.scalars().all()
+org.hibernate.LazyInitializationException: failed to lazily initialize a collection
+  of role: com.example.Order.items, could not initialize proxy - no Session
+  at OrderRepository.findByUserId(OrderRepository.java:14)
 ```
-Ocorre apenas quando chamado a partir de um Celery task.
+Ocorre apenas quando chamado a partir de um @Async task.
 
 [ESPERADO]
-Retornar lista de pedidos do usuário sem erro.
+Retornar lista de pedidos com items sem exceção.
 
 [INVESTIGADO]
-- Já confirmo que o Celery task usa @app.task — sem async support nativo
-- A sessão db é criada com AsyncSession fora do contexto async
+- O @Async task usa um executor separado sem transação ativa
+- A sessão JPA é fechada antes de o lazy loading ser executado
 
 Raciocine sobre o problema antes de propor a correção."
 ```
@@ -72,10 +78,10 @@ Raciocine sobre o problema antes de propor a correção."
 
 ## Analisando Stack Traces
 
-### Prompt para stack trace Python
+### Prompt para stack trace Java
 
 ```markdown
-"Analise este stack trace Python e identifique:
+"Analise este stack trace Java e identifique:
 1. O ponto exato de falha
 2. O contexto que levou até ele (trace do topo)
 3. A causa raiz mais provável
@@ -87,7 +93,7 @@ Stack trace:
 ```
 
 Código das linhas relevantes:
-```python
+```java
 [código]
 ```
 
@@ -159,24 +165,23 @@ Identifique o bottleneck e sugira a solução mais impactante primeiro."
 ### Analisando memory leak
 
 ```markdown
-"Nossa aplicação Python/FastAPI tem uso de memória crescente ao longo do tempo.
-Aumenta ~50MB por hora e não libera após garbage collection.
+"Nossa aplicação Spring Boot tem uso de memória crescente ao longo do tempo.
+Aumenta ~50MB por hora e não libera após GC.
 
 Suspeito deste padrão no código:
-```python
-_cache = {}  # global
+```java
+private static final Map<String, User> CACHE = new HashMap<>(); // global, ilimitado
 
-async def get_user(user_id: str) -> User:
-    if user_id not in _cache:
-        _cache[user_id] = await db.get(User, user_id)
-    return _cache[user_id]
+public User getUser(String userId) {
+    return CACHE.computeIfAbsent(userId, id -> userRepository.findById(id).orElseThrow());
+}
 ```
 
 Volume de usuários únicos por hora: ~10k
 
 1. Este código causa o leak? Explique o mecanismo.
-2. Como medir para confirmar?
-3. Qual é a correção adequada para um cache de usuários?"
+2. Como medir usando JVisualVM ou jmap para confirmar?
+3. Qual é a correção adequada — Caffeine Cache, WeakHashMap ou outra opção?"
 ```
 
 ---
@@ -187,22 +192,21 @@ Bugs que ocorrem "às vezes" são os mais difíceis. A IA ajuda a estruturar a i
 
 ```markdown
 "Temos um bug intermitente: aproximadamente 1 em 50 criações de pedido falha com:
-'IntegrityError: duplicate key value violates unique constraint orders_pkey'
+'DataIntegrityViolationException: duplicate key value violates unique constraint orders_pkey'
 
 O ID é gerado assim:
-```python
-import uuid
-order_id = str(uuid.uuid4())
+```java
+String orderId = UUID.randomUUID().toString();
 ```
 
 Contexto:
-- 4 workers Gunicorn, cada um com 4 threads async
+- 4 instâncias Spring Boot com 20 threads cada
 - ~200 criações de pedido simultâneas no pico
 - Falha ocorre mais no horário de pico
 
 Hipóteses que já descartei:
 - Não é resubmissão do cliente (verificamos os logs de entrada)
-- uuid4() não repete (testamos 10M de gerações)
+- UUID.randomUUID() não repete (testamos 10M de gerações)
 
 Quais são as hipóteses restantes? Ordene por probabilidade."
 ```

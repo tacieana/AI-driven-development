@@ -31,135 +31,182 @@ sequenceDiagram
 
 Cada ferramenta tem: nome, descrição e schema de parâmetros. A descrição é crítica — é o que o modelo lê para decidir se e como usar a ferramenta.
 
-```python
-import anthropic
+```java
+// pom.xml:
+// <dependency>
+//   <groupId>com.anthropic</groupId>
+//   <artifactId>anthropic-java</artifactId>
+//   <version>1.3.0</version>
+// </dependency>
 
-tools = [
-    {
-        "name": "read_file",
-        "description": (
-            "Lê o conteúdo de um arquivo do sistema de arquivos. "
-            "Use quando precisar analisar código existente, ler configurações ou "
+import com.anthropic.client.Anthropic;
+import com.anthropic.client.okhttp.AnthropicOkHttpClient;
+import com.anthropic.models.messages.*;
+import java.util.*;
+
+List<ToolParam> tools = List.of(
+    ToolParam.builder()
+        .name("read_file")
+        .description(
+            "Lê o conteúdo de um arquivo do sistema de arquivos. " +
+            "Use quando precisar analisar código existente, ler configurações ou " +
             "inspecionar qualquer arquivo de texto. Retorna o conteúdo como string."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "Caminho relativo ao diretório do projeto (ex: 'src/auth.py')"
-                }
-            },
-            "required": ["path"]
-        }
-    },
-    {
-        "name": "write_file",
-        "description": (
-            "Escreve ou substitui o conteúdo de um arquivo. "
-            "Use para criar novos arquivos ou modificar existentes. "
+        )
+        .inputSchema(ToolParam.InputSchema.builder()
+            .type(ToolParam.InputSchema.Type.OBJECT)
+            .properties(Map.of(
+                "path", Map.of(
+                    "type", "string",
+                    "description", "Caminho relativo ao projeto (ex: 'src/Auth.java')"
+                )
+            ))
+            .required(List.of("path"))
+            .build())
+        .build(),
+    ToolParam.builder()
+        .name("write_file")
+        .description(
+            "Escreve ou substitui o conteúdo de um arquivo. " +
+            "Use para criar novos arquivos ou modificar existentes. " +
             "ATENÇÃO: sobrescreve o arquivo inteiro — inclua o conteúdo completo."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "Caminho do arquivo"},
-                "content": {"type": "string", "description": "Conteúdo completo a escrever"}
-            },
-            "required": ["path", "content"]
-        }
-    },
-    {
-        "name": "run_tests",
-        "description": "Executa a suite de testes do projeto. Retorna stdout, stderr e código de saída.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "Caminho específico de testes (opcional). Vazio = todos os testes.",
-                    "default": ""
-                }
-            }
-        }
-    }
-]
+        )
+        .inputSchema(ToolParam.InputSchema.builder()
+            .type(ToolParam.InputSchema.Type.OBJECT)
+            .properties(Map.of(
+                "path",    Map.of("type", "string", "description", "Caminho do arquivo"),
+                "content", Map.of("type", "string", "description", "Conteúdo completo a escrever")
+            ))
+            .required(List.of("path", "content"))
+            .build())
+        .build(),
+    ToolParam.builder()
+        .name("run_tests")
+        .description("Executa a suite de testes do projeto. Retorna stdout e código de saída.")
+        .inputSchema(ToolParam.InputSchema.builder()
+            .type(ToolParam.InputSchema.Type.OBJECT)
+            .properties(Map.of(
+                "path", Map.of(
+                    "type", "string",
+                    "description", "Caminho específico de testes (opcional). Vazio = todos os testes.",
+                    "default", ""
+                )
+            ))
+            .build())
+        .build()
+);
 ```
 
 ---
 
 ## Loop de Tool Use: Implementação Completa
 
-```python
-import subprocess
-from pathlib import Path
-import anthropic
+```java
+import com.anthropic.client.Anthropic;
+import com.anthropic.client.okhttp.AnthropicOkHttpClient;
+import com.anthropic.models.messages.*;
+import java.io.*;
+import java.nio.file.*;
+import java.util.*;
+import java.util.function.Function;
 
-client = anthropic.Anthropic()
+public class ToolAgent {
 
-def read_file(path: str) -> str:
-    try:
-        return Path(path).read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return f"Erro: arquivo '{path}' não encontrado"
+    private static final Anthropic client = AnthropicOkHttpClient.fromEnv();
 
-def write_file(path: str, content: str) -> str:
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    Path(path).write_text(content, encoding="utf-8")
-    return f"Arquivo '{path}' escrito com sucesso ({len(content)} chars)"
+    static String readFile(String path) {
+        try {
+            return Files.readString(Path.of(path));
+        } catch (IOException e) {
+            return "Erro: arquivo '" + path + "' não encontrado";
+        }
+    }
 
-def run_tests(path: str = "") -> str:
-    cmd = ["python", "-m", "pytest", path, "-v"] if path else ["python", "-m", "pytest", "-v"]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-    return f"Exit code: {result.returncode}\n{result.stdout}\n{result.stderr}"
+    static String writeFile(String path, String content) {
+        try {
+            Path p = Path.of(path);
+            Files.createDirectories(p.getParent());
+            Files.writeString(p, content);
+            return "Arquivo '" + path + "' escrito (" + content.length() + " chars)";
+        } catch (IOException e) {
+            return "Erro: " + e.getMessage();
+        }
+    }
 
-TOOL_HANDLERS = {
-    "read_file": lambda args: read_file(args["path"]),
-    "write_file": lambda args: write_file(args["path"], args["content"]),
-    "run_tests": lambda args: run_tests(args.get("path", "")),
+    static String runTests(String path) {
+        try {
+            List<String> cmd = path.isEmpty()
+                ? List.of("mvn", "test")
+                : List.of("mvn", "test", "-Dtest=" + path);
+            Process proc = new ProcessBuilder(cmd).redirectErrorStream(true).start();
+            String out = new String(proc.getInputStream().readAllBytes());
+            return "Exit code: " + proc.waitFor() + "\n" + out;
+        } catch (Exception e) {
+            return "Erro: " + e.getMessage();
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    static final Map<String, Function<Map<String, Object>, String>> TOOL_HANDLERS = Map.of(
+        "read_file",  args -> readFile((String) args.get("path")),
+        "write_file", args -> writeFile((String) args.get("path"), (String) args.get("content")),
+        "run_tests",  args -> runTests((String) args.getOrDefault("path", ""))
+    );
+
+    @SuppressWarnings("unchecked")
+    static String runAgent(String task, int maxIterations) {
+        List<MessageParam> messages = new ArrayList<>(List.of(
+            MessageParam.builder().role(MessageParam.Role.USER).content(task).build()
+        ));
+
+        for (int i = 0; i < maxIterations; i++) {
+            Message response = client.messages().create(
+                MessageCreateParams.builder()
+                    .model(Model.CLAUDE_SONNET_4_6)
+                    .maxTokens(4096L)
+                    .tools(tools)
+                    .messages(messages)
+                    .build()
+            );
+
+            messages.add(MessageParam.builder()
+                .role(MessageParam.Role.ASSISTANT)
+                .content(response.content())
+                .build());
+
+            if (response.stopReason() == StopReason.END_TURN) {
+                return response.content().stream()
+                    .filter(ContentBlock::isText)
+                    .map(b -> b.asText().text())
+                    .findFirst()
+                    .orElse("Tarefa concluída.");
+            }
+
+            if (response.stopReason() == StopReason.TOOL_USE) {
+                List<ContentBlockParam> toolResults = new ArrayList<>();
+                for (ContentBlock block : response.content()) {
+                    if (block.isToolUse()) {
+                        ToolUseBlock use = block.asToolUse();
+                        var handler = TOOL_HANDLERS.get(use.name());
+                        String result = handler != null
+                            ? handler.apply((Map<String, Object>) use.input())
+                            : "Ferramenta '" + use.name() + "' não reconhecida";
+                        toolResults.add(ContentBlockParam.ofToolResult(
+                            ToolResultBlockParam.builder()
+                                .toolUseId(use.id())
+                                .content(result)
+                                .build()
+                        ));
+                    }
+                }
+                messages.add(MessageParam.builder()
+                    .role(MessageParam.Role.USER)
+                    .content(toolResults)
+                    .build());
+            }
+        }
+        return "Limite de iterações atingido.";
+    }
 }
-
-def run_agent(task: str, max_iterations: int = 10) -> str:
-    messages = [{"role": "user", "content": task}]
-
-    for _ in range(max_iterations):
-        response = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=4096,
-            tools=tools,
-            messages=messages
-        )
-
-        # Adiciona resposta do modelo ao histórico
-        messages.append({"role": "assistant", "content": response.content})
-
-        # Tarefa concluída
-        if response.stop_reason == "end_turn":
-            return next(
-                (b.text for b in response.content if hasattr(b, "text")),
-                "Tarefa concluída."
-            )
-
-        # Executa ferramentas solicitadas
-        if response.stop_reason == "tool_use":
-            tool_results = []
-            for block in response.content:
-                if block.type == "tool_use":
-                    handler = TOOL_HANDLERS.get(block.name)
-                    if handler:
-                        result = handler(block.input)
-                    else:
-                        result = f"Ferramenta '{block.name}' não reconhecida"
-
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": result
-                    })
-
-            messages.append({"role": "user", "content": tool_results})
-
-    return "Limite de iterações atingido."
 ```
 
 > 📌 **Referência:** docs.anthropic.com/en/docs/build-with-claude/tool-use/implement-tool-use
@@ -182,28 +229,29 @@ A descrição determina se o modelo vai usar a ferramenta corretamente.
 
 Nem toda ação deve ser executada automaticamente. Para ações com efeito colateral irreversível, implemente aprovação humana.
 
-```python
-ACTIONS_REQUIRING_APPROVAL = {
-    "delete_file",
-    "run_migration",
-    "deploy",
-    "send_email",
-    "push_to_remote",
+```java
+import java.util.*;
+
+static final Set<String> ACTIONS_REQUIRING_APPROVAL = Set.of(
+    "delete_file", "run_migration", "deploy", "send_email", "push_to_remote"
+);
+
+@SuppressWarnings("unchecked")
+static String executeWithApproval(String toolName, Map<String, Object> toolArgs) {
+    if (ACTIONS_REQUIRING_APPROVAL.contains(toolName)) {
+        System.out.println("\n⚠️  Aprovação necessária:");
+        System.out.println("   Ferramenta: " + toolName);
+        System.out.println("   Argumentos: " + toolArgs);
+        System.out.print("   Executar? (s/N): ");
+        String confirm = new Scanner(System.in).nextLine().trim().toLowerCase();
+        if (!confirm.equals("s")) {
+            return "Ação '" + toolName + "' cancelada pelo usuário.";
+        }
+    }
+    var handler = TOOL_HANDLERS.get(toolName);
+    if (handler == null) return "Ferramenta '" + toolName + "' não encontrada";
+    return handler.apply(toolArgs);
 }
-
-def execute_with_approval(tool_name: str, tool_args: dict) -> str:
-    if tool_name in ACTIONS_REQUIRING_APPROVAL:
-        print(f"\n⚠️  Aprovação necessária:")
-        print(f"   Ferramenta: {tool_name}")
-        print(f"   Argumentos: {tool_args}")
-        confirm = input("   Executar? (s/N): ").strip().lower()
-        if confirm != "s":
-            return f"Ação '{tool_name}' cancelada pelo usuário."
-
-    handler = TOOL_HANDLERS.get(tool_name)
-    if not handler:
-        return f"Ferramenta '{tool_name}' não encontrada"
-    return handler(tool_args)
 ```
 
 ### Classificação de ações por risco
@@ -252,20 +300,30 @@ flowchart LR
 
 ## Tool Use com Streaming (para UX mais responsiva)
 
-```python
-with client.messages.stream(
-    model="claude-sonnet-4-6",
-    max_tokens=4096,
-    tools=tools,
-    messages=messages
-) as stream:
-    for event in stream:
-        if hasattr(event, "type"):
-            if event.type == "content_block_start":
-                if hasattr(event.content_block, "name"):
-                    print(f"\n🔧 Usando ferramenta: {event.content_block.name}")
-            elif event.type == "text":
-                print(event.text, end="", flush=True)
+```java
+try (var stream = client.messages().stream(
+    MessageCreateParams.builder()
+        .model(Model.CLAUDE_SONNET_4_6)
+        .maxTokens(4096L)
+        .tools(tools)
+        .messages(messages)
+        .build())) {
+
+    stream.stream().forEach(event -> {
+        if (event.isContentBlockStart()) {
+            var block = event.asContentBlockStart().contentBlock();
+            if (block.isToolUse()) {
+                System.out.println("\n🔧 Usando ferramenta: " + block.asToolUse().name());
+            }
+        } else if (event.isContentBlockDelta()) {
+            var delta = event.asContentBlockDelta().delta();
+            if (delta.isTextDelta()) {
+                System.out.print(delta.asTextDelta().text());
+                System.out.flush();
+            }
+        }
+    });
+}
 ```
 
 > 📌 **Referência:** docs.anthropic.com/en/docs/build-with-claude/tool-use/streaming-with-tool-use
