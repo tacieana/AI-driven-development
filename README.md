@@ -1,7 +1,5 @@
 # AI-Driven Development — Curso Completo em Português 🤖
 
-**EM DESENVOLVIMENTO **
-
 Curso estruturado sobre **desenvolvimento com inteligência artificial**: do prompt engineering básico a agentes autônomos, context engineering e integração com **Claude Code** e **GitHub Copilot**. Conteúdo em português, baseado nas documentações oficiais da Anthropic e GitHub.
 
 > **55+ aulas** · **5 projetos práticos** · **Gratuito e open source**
@@ -191,9 +189,6 @@ Se você é desenvolvedor e quer usar IA de forma profissional — não apenas p
 | 02  | [Completions e Sugestões Inline](./07-github-copilot/02-completions-e-sugestoes-inline.md) | Atalhos, aceitação parcial, multi-linha   |
 | 03  | [Next Edit Suggestions](./07-github-copilot/03-next-edit-suggestions.md)                   | Previsão de próximo edit                  |
 | 04  | [Copilot Chat](./07-github-copilot/04-copilot-chat.md)                                     | `#file`, `#symbol`, variáveis de contexto |
-
-**Agent Mode, Cloud Agent, Customização, CLI** — ver índice completo em [07-github-copilot/](./07-github-copilot/)
-
 | 📝 | [Exercícios do Capítulo 07](./07-github-copilot/05-exercicios.md) | Pratique com GitHub Copilot |
 
 ---
