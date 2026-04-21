@@ -189,7 +189,7 @@ Se você é desenvolvedor e quer usar IA de forma profissional — não apenas p
 | 02  | [Completions e Sugestões Inline](./07-github-copilot/02-completions-e-sugestoes-inline.md) | Atalhos, aceitação parcial, multi-linha   |
 | 03  | [Next Edit Suggestions](./07-github-copilot/03-next-edit-suggestions.md)                   | Previsão de próximo edit                  |
 | 04  | [Copilot Chat](./07-github-copilot/04-copilot-chat.md)                                     | `#file`, `#symbol`, variáveis de contexto |
-| 📝 | [Exercícios do Capítulo 07](./07-github-copilot/05-exercicios.md) | Pratique com GitHub Copilot |
+| 📝  | [Exercícios do Capítulo 07](./07-github-copilot/05-exercicios.md)                          | Pratique com GitHub Copilot               |
 
 ---
 
@@ -241,7 +241,6 @@ Se você é desenvolvedor e quer usar IA de forma profissional — não apenas p
 | [Glossário](./99-referencias/glossario.md)                         | Token, contexto, agente, MCP, skill, hook, RAG... |
 | [Links Oficiais](./99-referencias/links-oficiais.md)               | Documentações oficiais Anthropic, GitHub, MCP     |
 | [Leituras Recomendadas](./99-referencias/leituras-recomendadas.md) | Papers, posts, repositórios complementares        |
-| [Changelog](./99-referencias/changelog.md)                         | Histórico de atualizações do curso                |
 
 ---
 
@@ -295,4 +294,3 @@ Sem afirmações sem fonte. Cada aula indica a documentação oficial consultada
 ## Contribuindo
 
 Encontrou algo desatualizado ou incorreto? Abra uma issue ou PR. O conteúdo evolui junto com as ferramentas.
-
